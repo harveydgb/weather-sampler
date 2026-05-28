@@ -1,0 +1,30 @@
+[project]
+name = "weather-sampler-research"
+version = "0.1.0"
+description = "Research code and diagnostics for WeatherGenerator sampler experiments."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
+plots = [
+    "matplotlib>=3.8",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+"" = "sampler_research/src"
+
+[tool.setuptools.packages.find]
+where = ["sampler_research/src"]
+
+[tool.pytest.ini_options]
+testpaths = ["sampler_research/tests"]
