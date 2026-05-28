@@ -70,13 +70,61 @@ Sampler code should consume only `pi`, `mu`, `sigma`, and `coords` from these fi
 arrays such as `truth`, `component_fields`, `perm`, and variant metadata are for debugging and
 reproducibility.
 
+## Repo Alignment Prompt
+
+Use this prompt after adding or reorganising code, notebooks, generated data, or notes:
+
+```text
+Review the weather-sampler-research repo for internal alignment after the latest changes.
+Check README.md, pyproject.toml, scripts/, notebooks/, research_notes/, sampler_research/src/,
+sampler_research/tests/, and outputs/ docs. Look for stale paths, renamed files, missing
+optional dependencies, notebook output drift, generated artifact names, phase/status claims,
+CLI defaults, imports, and notes-system ownership. Keep one fact in one canonical home,
+link instead of duplicating it, do not edit meeting_notes.md except to append raw notes, and
+ensure sampler-facing code only consumes pi, mu, sigma, and coords from generated .npz files.
+Return findings first, then make low-risk documentation/path fixes.
+```
+
 ## Local Setup
 
+Use a lightweight local virtual environment for toy-data generation, notebooks, scripts, and
+tests. Pick an interpreter that satisfies `requires-python >=3.10`; on this machine,
+`python3.11` is suitable while bare `python3` may be older.
+
 ```bash
-python -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install -U pip
+python -m pip install -e ".[dev,notebooks]"
+python -m ipykernel install --user --name weather-sampler-research --display-name "weather-sampler-research (.venv)"
 python -m pytest
 ```
 
-The real-checkpoint diagnostics require an environment with `torch` installed, but `torch` is not installed by default for this small research package.
+In VS Code/Jupyter, select the `weather-sampler-research (.venv)` kernel for synthetic toy
+notebooks and baseline reports.
+
+For real WeatherGenerator checkpoints, use the existing WeatherGenerator environment so
+`torch` and GPU-related dependencies stay owned by that project. To keep that environment
+stable, either install this package without extras:
+
+```bash
+source /users/harvey_bermingham/WeatherGenerator/.venv/bin/activate
+python -m pip install -e .
+```
+
+If the WeatherGenerator environment is not already listed as a notebook kernel and it already
+has `ipykernel`, register it with:
+
+```bash
+python -m ipykernel install --user --name weathergen --display-name "WeatherGenerator"
+```
+
+or avoid installing into it and add the source path only for the command you need:
+
+```bash
+PYTHONPATH=/users/harvey_bermingham/weather-sampler-research/sampler_research/src \
+python scripts/real_output_diagnostics.py
+```
+
+The real-checkpoint diagnostics require `torch`, which is intentionally not a dependency of
+this small research package.
