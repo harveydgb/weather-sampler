@@ -23,6 +23,15 @@ from sampler_research.baselines import (
     smoothest_mode_assignment,
     variance_scaled_baseline,
 )
+from sampler_research.regularised_map import (
+    LambdaSweepPoint,
+    OptimResult,
+    lambda_sweep,
+    minimise_at_lambda,
+    nll_gradient,
+    objective,
+    objective_gradient,
+)
 
 __all__ = [
     "Phase1ToyConfig",
@@ -42,4 +51,11 @@ __all__ = [
     "smoothed_map_baseline",
     "smoothest_mode_assignment",
     "variance_scaled_baseline",
+    "LambdaSweepPoint",
+    "OptimResult",
+    "lambda_sweep",
+    "minimise_at_lambda",
+    "nll_gradient",
+    "objective",
+    "objective_gradient",
 ]

@@ -18,8 +18,8 @@ venv/
 .ipynb_checkpoints/
 
 # Research outputs and large/generated arrays
+# (figures are committed as versioned report assets; data/runs stay regenerable-only)
 outputs/data/*.npz
-outputs/figures/*
 outputs/runs/*
 *.npy
 *.npz
