@@ -35,6 +35,7 @@ DATASETS = (
     "phase_1_field",
     "phase_1_field_heteroscedastic_sigma",
     "phase_1_regime_boundary_pi",
+    "phase_1_multimodal",
 )
 
 

@@ -9,7 +9,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "sampler_research" / "src"))
 
 from sampler_research.io import load_npz
-from sampler_research.toy import Phase1ToyConfig, save_phase1_toy
+from sampler_research.toy import (
+    Phase1MultimodalConfig,
+    Phase1ToyConfig,
+    save_phase1_multimodal_toy,
+    save_phase1_toy,
+)
 
 
 def parse_args():
@@ -21,6 +26,7 @@ def parse_args():
             "heteroscedastic",
             "regime_boundary",
             "regime-boundary",
+            "multimodal",
             "both",
             "all",
         ),
@@ -38,21 +44,35 @@ def parse_args():
 
 
 def configs_for_variant(variant, seed):
+    """Return `(saver, config)` pairs for the requested variant(s).
+
+    `saver` is the matching `save_*` function, since the multimodal toy uses a
+    separate config/builder from the quadratic-mean Phase1ToyConfig family.
+    """
+
     variant = variant.replace("-", "_")
     configs = []
     if variant in {"baseline", "both", "all"}:
-        configs.append(Phase1ToyConfig(seed=seed, use_heteroscedastic_sigma=False))
+        configs.append(
+            (save_phase1_toy, Phase1ToyConfig(seed=seed, use_heteroscedastic_sigma=False))
+        )
     if variant in {"heteroscedastic", "both", "all"}:
-        configs.append(Phase1ToyConfig(seed=seed, use_heteroscedastic_sigma=True))
+        configs.append(
+            (save_phase1_toy, Phase1ToyConfig(seed=seed, use_heteroscedastic_sigma=True))
+        )
     if variant in {"regime_boundary", "all"}:
-        configs.append(Phase1ToyConfig(seed=seed, use_regime_boundary_pi=True))
+        configs.append(
+            (save_phase1_toy, Phase1ToyConfig(seed=seed, use_regime_boundary_pi=True))
+        )
+    if variant in {"multimodal", "all"}:
+        configs.append((save_phase1_multimodal_toy, Phase1MultimodalConfig(seed=seed)))
     return configs
 
 
 def main():
     args = parse_args()
-    for config in configs_for_variant(args.variant, args.seed):
-        path = save_phase1_toy(args.output_dir, config)
+    for saver, config in configs_for_variant(args.variant, args.seed):
+        path = saver(args.output_dir, config)
         data = load_npz(path)
         print(f"wrote {path}")
         print(

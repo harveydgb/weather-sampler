@@ -269,3 +269,286 @@ def save_phase1_toy(
     config = config or Phase1ToyConfig()
     data = make_phase1_toy(config)
     return save_npz(Path(output_dir) / config.output_filename, data)
+
+
+class Phase1MultimodalConfig:
+    """Config for the `phase_1_multimodal` discrimination toy.
+
+    Unlike the baseline/regime-boundary toys (whose component means are
+    coordinate-quadratic surfaces that partially overlap at sigma=1), this toy
+    uses a small set of **globally shared, well-separated** component means
+    (default separation 4 sigma). Spatially-varying regime-boundary `pi` then
+    makes the per-cell dominance field `d_i = argmax_k pi_ik` flip between
+    far-apart mean *values* at regime boundaries, so the per-cell MAP/mode field
+    `mu_{i,d_i}` is genuinely *jagged* in value space — not just in label index.
+
+    That jaggedness is the point: on the overlapping-mean toys the smoothest
+    valid mode assignment `a*` already equals the per-cell MAP field
+    (`a* == mode_map`, Stage A memo §5), so there is no roughness for a smoother
+    to remove. With well-separated means every cell still *carries* the other
+    components (just at lower `pi`), so `a*` can choose a value-compatible but
+    non-dominant mode to reduce roughness — making `a*` strictly smoother than
+    `mode_map` and `smoothed_map` a real, beatable roughness anchor.
+
+    Same 8x8 `E_8` grid, K=4, scalar field, shared within-cell sigma, so all
+    Stage A graph / roughness / scoring code applies unchanged.
+    """
+
+    def __init__(
+        self,
+        seed=0,
+        grid_n=8,
+        x_min=-2.0,
+        x_max=2.0,
+        y_min=-2.0,
+        y_max=2.0,
+        k=4,
+        base_means=None,
+        regime_centres=None,
+        sigma_value=1.0,
+        tau_pi=0.9,
+        pi_floor=0.05,
+    ):
+        self.seed = seed
+        self.grid_n = grid_n
+        self.x_min = x_min
+        self.x_max = x_max
+        self.y_min = y_min
+        self.y_max = y_max
+        self.k = k
+        # Globally shared, well-separated component means (default 4-sigma gaps
+        # at sigma_value=1.0). These are deliberately NOT coordinate-quadratic.
+        self.base_means = (
+            np.array(base_means, dtype=float)
+            if base_means is not None
+            else np.array([0.0, 4.0, 8.0, 12.0], dtype=float)
+        )
+        # One regime centre per component, in the four grid quadrants; the
+        # dominant component at a cell is the one whose centre is nearest.
+        self.regime_centres = (
+            np.array(regime_centres, dtype=float)
+            if regime_centres is not None
+            else np.array(
+                [
+                    [-1.2, -1.2],
+                    [1.2, -1.2],
+                    [1.2, 1.2],
+                    [-1.2, 1.2],
+                ],
+                dtype=float,
+            )
+        )
+        self.sigma_value = sigma_value
+        self.tau_pi = tau_pi
+        self.pi_floor = pi_floor
+
+    @property
+    def pi_value(self):
+        return 1.0 / self.k
+
+    @property
+    def pi_mode(self):
+        return "multimodal_regime_boundary_soft"
+
+    @property
+    def sigma_mode(self):
+        return "fixed"
+
+    @property
+    def variant_name(self):
+        return "phase_1_multimodal"
+
+    @property
+    def output_filename(self):
+        return f"{self.variant_name}.npz"
+
+    @property
+    def min_mean_separation(self):
+        return float(np.min(np.diff(np.sort(self.base_means))))
+
+    def constants(self):
+        return {
+            "seed": self.seed,
+            "grid_n": self.grid_n,
+            "x_min": self.x_min,
+            "x_max": self.x_max,
+            "y_min": self.y_min,
+            "y_max": self.y_max,
+            "k": self.k,
+            "base_means": self.base_means.tolist(),
+            "regime_centres": self.regime_centres.tolist(),
+            "min_mean_separation": self.min_mean_separation,
+            "sigma_mode": self.sigma_mode,
+            "sigma_value": self.sigma_value,
+            "pi_mode": self.pi_mode,
+            "pi_value": self.pi_value,
+            "tau_pi": self.tau_pi,
+            "pi_floor": self.pi_floor,
+        }
+
+
+def make_phase1_multimodal_toy(config=None):
+    """Build the `phase_1_multimodal` toy arrays and debug metadata."""
+
+    config = config or Phase1MultimodalConfig()
+    if config.base_means.shape != (config.k,):
+        raise ValueError("base_means must have shape [k]")
+    if config.regime_centres.shape != (config.k, 2):
+        raise ValueError("regime_centres must have shape [k, 2]")
+    if not (0.0 <= config.pi_floor < 1.0 / config.k):
+        raise ValueError("pi_floor must satisfy 0 <= pi_floor < 1 / k")
+    if config.tau_pi <= 0.0:
+        raise ValueError("tau_pi must be positive")
+    # The whole point of this toy is well-separated means; guard against a
+    # config that quietly reintroduces the overlapping-mean collapse.
+    if config.min_mean_separation < 2.0 * config.sigma_value:
+        raise ValueError(
+            "base_means must be well separated (>= 2 sigma) for this toy to "
+            "discriminate a_star from the smoothed-MAP baseline"
+        )
+
+    x_1d = np.linspace(config.x_min, config.x_max, config.grid_n)
+    y_1d = np.linspace(config.y_min, config.y_max, config.grid_n)
+    x_grid, y_grid = np.meshgrid(x_1d, y_1d, indexing="ij")
+    coords = np.stack([x_grid, y_grid], axis=-1)
+
+    rng = np.random.default_rng(config.seed)
+    perm = np.empty((config.grid_n, config.grid_n, config.k), dtype=np.int64)
+    for i in range(config.grid_n):
+        for j in range(config.grid_n):
+            perm[i, j] = rng.permutation(config.k)
+
+    # Globally shared, well-separated means broadcast to every cell (pre-perm).
+    component_fields = np.broadcast_to(
+        config.base_means, (config.grid_n, config.grid_n, config.k)
+    ).copy()
+    mu = np.take_along_axis(component_fields, perm, axis=-1)
+
+    sigma = np.full((config.grid_n, config.grid_n, config.k), config.sigma_value)
+
+    raw_pi = make_raw_multimodal_pi(x_grid, y_grid, config)
+    pi = np.take_along_axis(raw_pi, perm, axis=-1)
+
+    # Debug-only coherence reference: the dominant-mode value field mu_{i,d_i}.
+    # This is the jagged per-cell MAP surface the smoother must contend with;
+    # it is NOT a sampler input (kept separate, like `truth` on the other toys).
+    dominance_index = np.argmax(raw_pi, axis=-1)
+    truth = np.take_along_axis(
+        component_fields, dominance_index[..., None], axis=-1
+    )[..., 0]
+
+    validate_phase1_multimodal_toy(
+        pi=pi,
+        mu=mu,
+        sigma=sigma,
+        coords=coords,
+        truth=truth,
+        component_fields=component_fields,
+        perm=perm,
+        config=config,
+    )
+
+    return {
+        "pi": pi,
+        "mu": mu,
+        "sigma": sigma,
+        "coords": coords,
+        "truth": truth,
+        "component_fields": component_fields,
+        "raw_pi": raw_pi,
+        "perm": perm,
+        "seed": np.asarray(config.seed),
+        "variant_name": np.asarray(config.variant_name),
+        "pi_mode": np.asarray(config.pi_mode),
+        "sigma_mode": np.asarray(config.sigma_mode),
+        "base_means": np.asarray(config.base_means),
+        "regime_centres": np.asarray(config.regime_centres),
+        "use_regime_boundary_pi": np.asarray(True),
+        "use_heteroscedastic_sigma": np.asarray(False),
+        "constants": np.asarray(json.dumps(config.constants(), sort_keys=True)),
+    }
+
+
+def make_raw_multimodal_pi(x_grid, y_grid, config):
+    """Soft regime-boundary mixture weights from distance to each regime centre.
+
+    Unlike `make_raw_regime_boundary_pi` (which offsets by the quadratic peak
+    offsets), this uses explicit per-component regime centres so the dominance
+    field tiles the grid into K well-separated regions with jagged boundaries.
+    """
+
+    centres = np.asarray(config.regime_centres, dtype=float)
+    dx = x_grid[..., None] - centres[:, 0]
+    dy = y_grid[..., None] - centres[:, 1]
+    logits = -(dx**2 + dy**2) / (2.0 * config.tau_pi**2)
+    logits = logits - logits.max(axis=-1, keepdims=True)
+    weights = np.exp(logits)
+    softmax = weights / weights.sum(axis=-1, keepdims=True)
+    return config.pi_floor + (1.0 - config.k * config.pi_floor) * softmax
+
+
+def validate_phase1_multimodal_toy(
+    *,
+    pi,
+    mu,
+    sigma,
+    coords,
+    truth,
+    component_fields,
+    perm,
+    config,
+):
+    """Validate the `phase_1_multimodal` toy invariants."""
+
+    expected_field_shape = (config.grid_n, config.grid_n, config.k)
+    if pi.shape != expected_field_shape:
+        raise ValueError(f"pi has shape {pi.shape}, expected {expected_field_shape}")
+    if mu.shape != expected_field_shape:
+        raise ValueError(f"mu has shape {mu.shape}, expected {expected_field_shape}")
+    if sigma.shape != expected_field_shape:
+        raise ValueError(f"sigma has shape {sigma.shape}, expected {expected_field_shape}")
+    if coords.shape != (config.grid_n, config.grid_n, 2):
+        raise ValueError(f"coords has shape {coords.shape}, expected {(config.grid_n, config.grid_n, 2)}")
+    if truth.shape != (config.grid_n, config.grid_n):
+        raise ValueError(f"truth has shape {truth.shape}, expected {(config.grid_n, config.grid_n)}")
+    if component_fields.shape != expected_field_shape:
+        raise ValueError("component_fields has the wrong shape")
+    if perm.shape != expected_field_shape:
+        raise ValueError("perm has the wrong shape")
+
+    if not np.allclose(pi.sum(axis=-1), 1.0):
+        raise ValueError("pi rows must sum to 1")
+    if not (np.all(np.isfinite(pi)) and np.all(pi >= 0.0)):
+        raise ValueError("pi must be finite and non-negative")
+    if not np.all(pi >= config.pi_floor):
+        raise ValueError("regime-boundary pi must stay at or above pi_floor")
+    if np.allclose(pi, config.pi_value):
+        raise ValueError("regime-boundary pi must be spatially non-uniform")
+    # The dominance field must genuinely tile into more than one regime, else
+    # there are no boundaries to be jagged.
+    if np.unique(np.argmax(pi, axis=-1)).size <= 1:
+        raise ValueError("dominance field must span more than one component")
+
+    if not (np.all(np.isfinite(sigma)) and np.all(sigma > 0)):
+        raise ValueError("sigma must be finite and positive")
+    if not np.allclose(sigma, config.sigma_value):
+        raise ValueError("multimodal toy uses a fixed shared sigma")
+
+    # Every cell shares the same well-separated mean set (only the label order
+    # differs per cell), so the per-cell permutation must not change the value
+    # set, and that set must be the well-separated base means.
+    if not np.allclose(np.sort(mu, axis=-1), np.sort(component_fields, axis=-1)):
+        raise ValueError("per-cell permutation changed the component value set")
+    if not np.allclose(np.sort(np.unique(mu)), np.sort(config.base_means)):
+        raise ValueError("mu values must be exactly the shared base means")
+    # truth is the dominant-mode value at each cell: one of that cell's means.
+    if not np.all(np.any(np.isclose(mu, truth[..., None]), axis=-1)):
+        raise ValueError("truth must equal one component mean at every cell")
+
+
+def save_phase1_multimodal_toy(output_dir, config=None):
+    """Build and save the `phase_1_multimodal` toy `.npz` file."""
+
+    config = config or Phase1MultimodalConfig()
+    data = make_phase1_multimodal_toy(config)
+    return save_npz(Path(output_dir) / config.output_filename, data)
