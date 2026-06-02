@@ -36,6 +36,7 @@ from sampler_research.graph import (
     roughness_sum,
     scale_free_roughness,
 )
+from sampler_research.spectral import spectral_roughness
 
 
 def nll_gradient(field_grid, pi, mu, sigma):
@@ -111,6 +112,10 @@ class OptimResult:
     nll_over_n: float  # NLL/N of `field`
     r_tilde: float  # scale-free roughness of `field`
     variance_collapsed: bool
+    spectral_hf_ratio: float  # secondary high-frequency power diagnostic
+    spectral_slope: float  # log-log radial-spectrum slope (shape check)
+    spectral_monotone_fraction: float  # fraction of decreasing adjacent bins
+    spectral_collapsed: bool
     restart_energies: np.ndarray  # J_lambda reached by each restart
     restart_spread: float  # max - min over restart energies (energy units)
     restart_field_spread: float  # max over cells of (max - min) restart field value
@@ -192,6 +197,7 @@ def minimise_at_lambda(
     best_field = fields[best]
 
     r_tilde, collapsed = scale_free_roughness(best_field, edges)
+    spectral = spectral_roughness(best_field)
     # Worst-case disagreement between restart fields, per cell, then max over cells.
     field_spread = float(np.max(fields.max(axis=0) - fields.min(axis=0)))
 
@@ -201,6 +207,10 @@ def minimise_at_lambda(
         nll_over_n=gmm_nll_over_n(best_field, pi, mu, sigma),
         r_tilde=r_tilde,
         variance_collapsed=collapsed,
+        spectral_hf_ratio=spectral["spectral_hf_ratio"],
+        spectral_slope=spectral["spectral_slope"],
+        spectral_monotone_fraction=spectral["spectral_monotone_fraction"],
+        spectral_collapsed=spectral["spectral_collapsed"],
         restart_energies=energies,
         restart_spread=float(energies.max() - energies.min()),
         restart_field_spread=field_spread,
@@ -216,6 +226,10 @@ class LambdaSweepPoint:
     nll_over_n: float
     r_tilde: float
     variance_collapsed: bool
+    spectral_hf_ratio: float
+    spectral_slope: float
+    spectral_monotone_fraction: float
+    spectral_collapsed: bool
     restart_spread: float
     restart_field_spread: float
     energy: float
@@ -273,6 +287,10 @@ def lambda_sweep(
                 nll_over_n=res.nll_over_n,
                 r_tilde=res.r_tilde,
                 variance_collapsed=res.variance_collapsed,
+                spectral_hf_ratio=res.spectral_hf_ratio,
+                spectral_slope=res.spectral_slope,
+                spectral_monotone_fraction=res.spectral_monotone_fraction,
+                spectral_collapsed=res.spectral_collapsed,
                 restart_spread=res.restart_spread,
                 restart_field_spread=res.restart_field_spread,
                 energy=res.energy,

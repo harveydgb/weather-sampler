@@ -4,7 +4,7 @@ These are the yardsticks from phase_2_research_plan.md §7 Stage A: iid /
 salt-and-pepper, per-location likelihood-only mode/MAP, mixture mean,
 variance-scaled GMM (Method 9), the smoothed-MAP critical baseline, and the
 smoothest high-likelihood mode-assignment field `a*`. They are scored with
-`NLL/N` and scale-free roughness `R̃`.
+`NLL/N`, scale-free roughness `R̃`, and secondary power-spectrum diagnostics.
 
 This module deliberately does *not* implement regularised MAP (Method 1) or
 mode extraction + MRF (Method 4); `a*` couples on component-mean *values*, never
@@ -20,6 +20,7 @@ from sampler_research.graph import (
     laplacian_blur,
     scale_free_roughness,
 )
+from sampler_research.spectral import spectral_roughness
 
 
 def gmm_nll_per_cell(field, pi, mu, sigma):
@@ -161,14 +162,25 @@ def smoothest_mode_assignment(pi, mu, edges=None, use_pi_unary=False, max_sweeps
 
 
 def score_field(field, pi, mu, sigma, edges=None):
-    """Return Stage A scores for a produced field: `NLL/N` and scale-free `R̃`.
+    """Return Stage A scores for a produced field.
 
-    `R̃` is reported with its variance-collapse flag (§3.1a).
+    The primary scores are `NLL/N` and scale-free `R̃` (§3.1a). Power-spectrum
+    scores are secondary necessary-condition diagnostics for high-frequency
+    roughness, not standalone skill metrics.
     """
 
+    field_grid = np.asarray(field, dtype=float)
+    if field_grid.ndim == 1:
+        field_grid = field_grid.reshape(np.asarray(pi).shape[:2])
+
     if edges is None:
-        height, width = np.asarray(field).shape
+        height, width = field_grid.shape
         edges = grid_edges_8(height, width)
-    nll = gmm_nll_over_n(field, pi, mu, sigma)
-    r_tilde, collapsed = scale_free_roughness(field, edges)
-    return {"nll_over_n": nll, "r_tilde": r_tilde, "variance_collapsed": collapsed}
+    nll = gmm_nll_over_n(field_grid, pi, mu, sigma)
+    r_tilde, collapsed = scale_free_roughness(field_grid, edges)
+    return {
+        "nll_over_n": nll,
+        "r_tilde": r_tilde,
+        "variance_collapsed": collapsed,
+        **spectral_roughness(field_grid),
+    }

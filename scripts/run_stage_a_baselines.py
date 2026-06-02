@@ -7,7 +7,8 @@ Run from the repo root with the local (numpy-only) venv:
 For each dataset in ``outputs/data/`` this loads only the sampler-facing arrays
 (``pi``, ``mu``, ``sigma``, ``coords``; see ``load_sampler_arrays``), produces
 the Stage A baseline fields (§7), and scores every produced field with
-``NLL/N``, the raw roughness ``x^T L x``, and the scale-free roughness ``R̃``.
+``NLL/N``, the raw roughness ``x^T L x``, scale-free roughness ``R̃``,
+and secondary power-spectrum roughness diagnostics.
 
 Outputs land in ``outputs/runs/stage_a_baselines/``:
   * ``stage_a_scores.csv`` / ``stage_a_scores.md`` — the score table,
@@ -25,10 +26,10 @@ from pathlib import Path
 import numpy as np
 
 from sampler_research.baselines import (
-    gmm_nll_over_n,
     iid_baseline,
     mixture_mean_field,
     mode_field,
+    score_field,
     smoothed_map_baseline,
     smoothest_mode_assignment,
     variance_scaled_baseline,
@@ -37,7 +38,6 @@ from sampler_research.graph import (
     graph_laplacian,
     grid_edges_8,
     roughness_sum,
-    scale_free_roughness,
 )
 from sampler_research.io import load_npz, load_sampler_arrays
 
@@ -54,14 +54,18 @@ DATASETS = (
 
 
 def _score(field, pi, mu, sigma, edges, laplacian):
-    """NLL/N, raw roughness x^T L x, and scale-free R̃ for a produced field."""
+    """NLL/N, graph roughness, and secondary spectral diagnostics."""
 
-    r_tilde, collapsed = scale_free_roughness(field, edges)
+    scores = score_field(field, pi, mu, sigma, edges)
     return {
-        "nll_over_n": gmm_nll_over_n(field, pi, mu, sigma),
+        "nll_over_n": scores["nll_over_n"],
         "roughness_sum": roughness_sum(field, laplacian),
-        "r_tilde": r_tilde,
-        "variance_collapsed": collapsed,
+        "r_tilde": scores["r_tilde"],
+        "variance_collapsed": scores["variance_collapsed"],
+        "spectral_hf_ratio": scores["spectral_hf_ratio"],
+        "spectral_slope": scores["spectral_slope"],
+        "spectral_monotone_fraction": scores["spectral_monotone_fraction"],
+        "spectral_collapsed": scores["spectral_collapsed"],
     }
 
 
@@ -98,6 +102,10 @@ def write_csv(rows, path):
         "roughness_sum",
         "r_tilde",
         "variance_collapsed",
+        "spectral_hf_ratio",
+        "spectral_slope",
+        "spectral_monotone_fraction",
+        "spectral_collapsed",
     ]
     with open(path, "w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)
@@ -106,18 +114,40 @@ def write_csv(rows, path):
             writer.writerow(row)
 
 
+def _fmt_float(value):
+    return "nan" if not np.isfinite(value) else f"{value:.4f}"
+
+
 def write_markdown(rows, path):
-    header = ["dataset", "baseline", "NLL/N", "x^T L x", "R̃", "var_collapsed"]
+    header = [
+        "dataset",
+        "baseline",
+        "NLL/N",
+        "x^T L x",
+        "R̃",
+        "HF power",
+        "slope",
+        "mono",
+        "var_collapsed",
+        "spec_collapsed",
+    ]
     lines = ["| " + " | ".join(header) + " |", "| " + " | ".join(["---"] * len(header)) + " |"]
     for row in rows:
         lines.append(
-            "| {dataset} | {baseline} | {nll:.4f} | {rough:.4f} | {rt} | {vc} |".format(
+            (
+                "| {dataset} | {baseline} | {nll:.4f} | {rough:.4f} | {rt} | "
+                "{hf:.4f} | {slope} | {mono} | {vc} | {sc} |"
+            ).format(
                 dataset=row["dataset"],
                 baseline=row["baseline"],
                 nll=row["nll_over_n"],
                 rough=row["roughness_sum"],
                 rt=("collapsed" if row["variance_collapsed"] else f"{row['r_tilde']:.4f}"),
+                hf=row["spectral_hf_ratio"],
+                slope=_fmt_float(row["spectral_slope"]),
+                mono=_fmt_float(row["spectral_monotone_fraction"]),
                 vc=row["variance_collapsed"],
+                sc=row["spectral_collapsed"],
             )
         )
     path.write_text("\n".join(lines) + "\n")

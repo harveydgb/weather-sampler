@@ -13,6 +13,7 @@ from sampler_research.graph import (
     roughness_sum,
     scale_free_roughness,
 )
+from sampler_research.spectral import radial_power_spectrum, spectral_roughness
 from sampler_research.baselines import (
     gmm_nll_over_n,
     iid_baseline,
@@ -43,6 +44,8 @@ __all__ = [
     "roughness_edge_mean",
     "roughness_sum",
     "scale_free_roughness",
+    "radial_power_spectrum",
+    "spectral_roughness",
     "gmm_nll_over_n",
     "iid_baseline",
     "mixture_mean_field",

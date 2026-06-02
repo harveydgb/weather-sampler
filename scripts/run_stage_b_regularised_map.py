@@ -14,7 +14,8 @@ the regularised-MAP objective
 per-cell mode field plus a few random restarts (lowest-energy kept), over a grid
 of lambda values. It emits, per dataset:
 
-  * the lambda-sweep table (lambda, NLL/N, R̃, restart-spread) as .md / .csv,
+  * the lambda-sweep table (lambda, NLL/N, R̃, spectral diagnostics,
+    restart-spread) as .md / .csv,
   * the chosen field at each lambda stacked into ``<dataset>_regularised_map.npz``.
 
 Every chosen field is *also* re-scored with ``score_field`` (the Stage A scorer)
@@ -67,6 +68,10 @@ def _sweep_rows(name, points):
                 "nll_over_n": p.nll_over_n,
                 "r_tilde": p.r_tilde,
                 "variance_collapsed": p.variance_collapsed,
+                "spectral_hf_ratio": p.spectral_hf_ratio,
+                "spectral_slope": p.spectral_slope,
+                "spectral_monotone_fraction": p.spectral_monotone_fraction,
+                "spectral_collapsed": p.spectral_collapsed,
                 "restart_spread": p.restart_spread,
                 "restart_field_spread": p.restart_field_spread,
                 "energy": p.energy,
@@ -82,6 +87,10 @@ def write_csv(rows, path):
         "nll_over_n",
         "r_tilde",
         "variance_collapsed",
+        "spectral_hf_ratio",
+        "spectral_slope",
+        "spectral_monotone_fraction",
+        "spectral_collapsed",
         "restart_spread",
         "restart_field_spread",
         "energy",
@@ -93,13 +102,21 @@ def write_csv(rows, path):
             writer.writerow(row)
 
 
+def _fmt_float(value):
+    return "nan" if not np.isfinite(value) else f"{value:.4f}"
+
+
 def write_markdown(rows, path):
     header = [
         "dataset",
         "lambda",
         "NLL/N",
         "R̃",
+        "HF power",
+        "slope",
+        "mono",
         "var_collapsed",
+        "spec_collapsed",
         "restart_spread (J)",
         "restart_field_spread",
     ]
@@ -109,12 +126,19 @@ def write_markdown(rows, path):
     ]
     for row in rows:
         lines.append(
-            "| {dataset} | {lam:g} | {nll:.4f} | {rt} | {vc} | {rs:.3e} | {rfs:.4f} |".format(
+            (
+                "| {dataset} | {lam:g} | {nll:.4f} | {rt} | {hf:.4f} | {slope} | "
+                "{mono} | {vc} | {sc} | {rs:.3e} | {rfs:.4f} |"
+            ).format(
                 dataset=row["dataset"],
                 lam=row["lambda"],
                 nll=row["nll_over_n"],
                 rt=("collapsed" if row["variance_collapsed"] else f"{row['r_tilde']:.4f}"),
+                hf=row["spectral_hf_ratio"],
+                slope=_fmt_float(row["spectral_slope"]),
+                mono=_fmt_float(row["spectral_monotone_fraction"]),
                 vc=row["variance_collapsed"],
+                sc=row["spectral_collapsed"],
                 rs=row["restart_spread"],
                 rfs=row["restart_field_spread"],
             )
@@ -173,11 +197,12 @@ def main():
         )
 
         # Re-score with the Stage A scorer for direct bracket comparability;
-        # assert it agrees with the sweep's own scores (same scale_free_roughness).
+        # assert it agrees with the sweep's own primary and spectral scores.
         for p in points:
             stage_a = score_field(p.field, pi, mu, sigma)
             assert np.isclose(stage_a["nll_over_n"], p.nll_over_n)
             assert np.isclose(stage_a["r_tilde"], p.r_tilde)
+            assert np.isclose(stage_a["spectral_hf_ratio"], p.spectral_hf_ratio)
 
         rows.extend(_sweep_rows(name, points))
 
@@ -188,6 +213,11 @@ def main():
             fields=np.stack([p.field for p in points]),
             nll_over_n=np.asarray([p.nll_over_n for p in points], dtype=float),
             r_tilde=np.asarray([p.r_tilde for p in points], dtype=float),
+            spectral_hf_ratio=np.asarray([p.spectral_hf_ratio for p in points], dtype=float),
+            spectral_slope=np.asarray([p.spectral_slope for p in points], dtype=float),
+            spectral_monotone_fraction=np.asarray(
+                [p.spectral_monotone_fraction for p in points], dtype=float
+            ),
             restart_spread=np.asarray([p.restart_spread for p in points], dtype=float),
         )
         print(f"wrote {npz_path} ({len(points)} lambda points)")
