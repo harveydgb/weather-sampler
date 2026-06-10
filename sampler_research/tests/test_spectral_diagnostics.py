@@ -54,7 +54,7 @@ def test_checkerboard_has_more_high_frequency_power_than_smooth_wave():
 
 
 def test_score_field_exposes_secondary_spectral_keys():
-    toy = make_phase1_toy(Phase1ToyConfig(use_regime_boundary_pi=True))
+    toy = make_phase1_toy(Phase1ToyConfig())
     pi, mu, sigma = toy["pi"], toy["mu"], toy["sigma"]
     field, _ = mode_field(pi, mu, sigma)
 
@@ -71,7 +71,7 @@ def test_score_field_exposes_secondary_spectral_keys():
 
 
 def test_score_field_spectral_path_accepts_flat_field():
-    toy = make_phase1_toy(Phase1ToyConfig(use_regime_boundary_pi=True))
+    toy = make_phase1_toy(Phase1ToyConfig())
     pi, mu, sigma = toy["pi"], toy["mu"], toy["sigma"]
     field, _ = mode_field(pi, mu, sigma)
 

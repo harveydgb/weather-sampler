@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Generate the Phase 1 and Phase 1.5 toy `.npz` files."""
+"""Generate the two Phase 1 toy `.npz` files (homoscedastic + heteroscedastic).
+
+Both toys share the same quadratic slowly-varying means and random floored
+Dirichlet mixture weights; they differ only in the noise scale (fixed vs
+per-location component-shared sigma).
+"""
 
 import argparse
 from pathlib import Path
@@ -9,12 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "sampler_research" / "src"))
 
 from sampler_research.io import load_npz
-from sampler_research.toy import (
-    Phase1MultimodalConfig,
-    Phase1ToyConfig,
-    save_phase1_multimodal_toy,
-    save_phase1_toy,
-)
+from sampler_research.toy import Phase1ToyConfig, save_phase1_toy
 
 
 def parse_args():
@@ -22,16 +22,13 @@ def parse_args():
     parser.add_argument(
         "--variant",
         choices=(
-            "baseline",
+            "homoscedastic",
             "heteroscedastic",
-            "regime_boundary",
-            "regime-boundary",
-            "multimodal",
             "both",
             "all",
         ),
         default="all",
-        help="Which toy variant to generate. `both` means baseline plus heteroscedastic.",
+        help="Which toy variant to generate. `both`/`all` generate both.",
     )
     parser.add_argument(
         "--output-dir",
@@ -44,15 +41,10 @@ def parse_args():
 
 
 def configs_for_variant(variant, seed):
-    """Return `(saver, config)` pairs for the requested variant(s).
+    """Return `(saver, config)` pairs for the requested variant(s)."""
 
-    `saver` is the matching `save_*` function, since the multimodal toy uses a
-    separate config/builder from the quadratic-mean Phase1ToyConfig family.
-    """
-
-    variant = variant.replace("-", "_")
     configs = []
-    if variant in {"baseline", "both", "all"}:
+    if variant in {"homoscedastic", "both", "all"}:
         configs.append(
             (save_phase1_toy, Phase1ToyConfig(seed=seed, use_heteroscedastic_sigma=False))
         )
@@ -60,12 +52,6 @@ def configs_for_variant(variant, seed):
         configs.append(
             (save_phase1_toy, Phase1ToyConfig(seed=seed, use_heteroscedastic_sigma=True))
         )
-    if variant in {"regime_boundary", "all"}:
-        configs.append(
-            (save_phase1_toy, Phase1ToyConfig(seed=seed, use_regime_boundary_pi=True))
-        )
-    if variant in {"multimodal", "all"}:
-        configs.append((save_phase1_multimodal_toy, Phase1MultimodalConfig(seed=seed)))
     return configs
 
 

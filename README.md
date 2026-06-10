@@ -29,10 +29,9 @@ in the relevant phase notes.
 
 - **Pre-phase:** check the real decoder schema and fix the minimal constraints that the toy
   and sampler must respect.
-- **Phase 1:** define and generate the controlled 8x8 single-channel synthetic GMM toy.
-  Canonical spec: [`research_notes/phase_1.md`](research_notes/phase_1.md).
-- **Phase 1.5:** generate harder toy variants, including heteroscedastic sigma and
-  non-uniform regime-boundary mixture weights.
+- **Phase 1:** define and generate the controlled 8x8 single-channel synthetic GMM toys:
+  `phase_1_homoscedastic` and `phase_1_heteroscedastic`. Canonical spec:
+  [`research_notes/phase_1.md`](research_notes/phase_1.md).
 - **Phase 2:** choose and implement the core spatial sampling methodology. Canonical spec:
   [`research_notes/phase_2.md`](research_notes/phase_2.md). Detailed method investigation:
   [`research_notes/phase_2_research_plan.md`](research_notes/phase_2_research_plan.md).
@@ -45,7 +44,7 @@ in the relevant phase notes.
 ## Current Status
 
 - Phase 1 toy generation and diagnostics are implemented.
-- Generated Phase 1 / Phase 1.5 `.npz` files live under `outputs/data/`.
+- Generated Phase 1 `.npz` files live under `outputs/data/`.
 - Phase 2 methodology is specified and being narrowed to primary sampler candidates and
   critical baselines.
 
@@ -62,13 +61,14 @@ in the relevant phase notes.
 
 Current sampler-facing synthetic data files:
 
-- `outputs/data/phase_1_field.npz`
-- `outputs/data/phase_1_field_heteroscedastic_sigma.npz`
-- `outputs/data/phase_1_regime_boundary_pi.npz`
+- `outputs/data/phase_1_homoscedastic.npz`
+- `outputs/data/phase_1_heteroscedastic.npz`
 
-Sampler code should consume only `pi`, `mu`, `sigma`, and `coords` from these files. Extra
-arrays such as `truth`, `component_fields`, `perm`, and variant metadata are for debugging and
-reproducibility.
+Both share the same quadratic slowly-varying means and random floored Dirichlet mixture weights;
+they differ only in the noise scale (fixed σ vs per-location component-shared σ). Sampler code
+should consume only `pi`, `mu`, `sigma`, and `coords` from these files. Extra arrays such as
+`component_fields`, `perm`, and variant metadata are for debugging and reproducibility; the toys
+are truth-free (the only "truth" is the emitted GMM).
 
 ## Repo Alignment Prompt
 

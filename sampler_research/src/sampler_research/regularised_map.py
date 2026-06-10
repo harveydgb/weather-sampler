@@ -22,6 +22,20 @@ GMM density (`mixture_pdf` / `gmm_nll_over_n`), the `E_8` graph + Laplacian and
 roughness metrics (`sampler_research.graph`), and `mode_field` as the warm start
 (the lambda -> 0 anchor, §4.1.4). It does *not* touch the optimiser-free Stage A
 baselines or load any debug arrays.
+
+Stage B-TV ablation (§4.1 field 6 / §8 #8): `objective`, `objective_gradient`,
+`minimise_at_lambda`, and `lambda_sweep` accept a keyword-only
+`penalty="quadratic" | "huber"`. The default `"quadratic"` runs the literal
+existing code path (bit-identical to the pre-ablation behaviour); `"huber"`
+swaps the per-edge quadratic for a Huber-smoothed total-variation penalty
+
+    J_lambda(x) = NLL(x)/N + lambda * (1/|E_8|) sum_(i,j) rho_delta(x_i - x_j)
+    rho_delta(d) = d^2/(2*delta) for |d| <= delta, |d| - delta/2 otherwise
+
+so the same Adam machinery answers "does the penalty swap alone kill the
+smearing?". The Huber edge-mean under-estimates the true TV edge-mean by at
+most delta/2 per edge, so `J_huber <= J_TV <= J_huber + lambda*delta/2`; that
+surrogate gap is part of the exact-solver certificate in `exact_map`.
 """
 
 from dataclasses import dataclass, field
@@ -62,15 +76,79 @@ def nll_gradient(field_grid, pi, mu, sigma):
     return -np.sum(per_component, axis=-1)
 
 
-def objective(field_grid, pi, mu, sigma, lam, laplacian=None, n_edges=None):
+def huber_rho(d, delta):
+    """Huber-smoothed absolute value `rho_delta(d)` (the per-edge TV surrogate).
+
+    Quadratic `d^2/(2*delta)` inside `|d| <= delta`, linear `|d| - delta/2`
+    outside, so `0 <= |d| - rho_delta(d) <= delta/2` everywhere — the surrogate
+    gap quoted in the module docstring.
+    """
+
+    d = np.asarray(d, dtype=float)
+    abs_d = np.abs(d)
+    return np.where(abs_d <= delta, d * d / (2.0 * delta), abs_d - 0.5 * delta)
+
+
+def huber_penalty_edge_mean(field_grid, edges, delta):
+    """Edge-averaged Huber-TV penalty `(1/|E|) sum_(i,j) rho_delta(x_i - x_j)`."""
+
+    flat = np.asarray(field_grid, dtype=float).reshape(-1)
+    edges = np.asarray(edges, dtype=np.int64)
+    diffs = flat[edges[:, 0]] - flat[edges[:, 1]]
+    return float(np.mean(huber_rho(diffs, delta)))
+
+
+def huber_penalty_gradient(field_grid, edges, delta):
+    """Gradient of `huber_penalty_edge_mean` w.r.t. the field, shape `[H, W]`.
+
+    Per edge the influence function is `rho'(d) = clip(d/delta, -1, 1)`; it is
+    scattered back onto the two endpoint cells (`+` on `i`, `-` on `j`) via
+    `np.add.at` on flat row-major indices, then edge-mean normalised.
+    """
+
+    field_grid = np.asarray(field_grid, dtype=float)
+    edges = np.asarray(edges, dtype=np.int64)
+    flat = field_grid.reshape(-1)
+    diffs = flat[edges[:, 0]] - flat[edges[:, 1]]
+    psi = np.clip(diffs / delta, -1.0, 1.0)
+    grad = np.zeros_like(flat)
+    np.add.at(grad, edges[:, 0], psi)
+    np.add.at(grad, edges[:, 1], -psi)
+    return (grad / len(edges)).reshape(field_grid.shape)
+
+
+def objective(
+    field_grid,
+    pi,
+    mu,
+    sigma,
+    lam,
+    laplacian=None,
+    n_edges=None,
+    *,
+    penalty="quadratic",
+    delta=0.05,
+    edges=None,
+):
     """J_lambda(x) = NLL(x)/N + lambda * (x^T L x)/|E_8| (§3.1a / §4.1.3).
 
     `laplacian` and `n_edges` are accepted so a sweep/optimiser can build them
-    once; both default to the `E_8` grid for the field's shape.
+    once; both default to the `E_8` grid for the field's shape. With
+    `penalty="huber"` the smoothness term becomes the Huber-TV edge mean of
+    `huber_penalty_edge_mean` (with `edges` defaulted like `laplacian`), giving
+    `J_huber <= J_TV <= J_huber + lambda*delta/2`. The default
+    `penalty="quadratic"` is the literal pre-ablation code path.
     """
 
     field_grid = np.asarray(field_grid, dtype=float)
     height, width = field_grid.shape
+    if penalty == "huber":
+        if edges is None:
+            edges = grid_edges_8(height, width)
+        nll_over_n = gmm_nll_over_n(field_grid, pi, mu, sigma)
+        return nll_over_n + lam * huber_penalty_edge_mean(field_grid, edges, delta)
+    if penalty != "quadratic":
+        raise ValueError(f"unknown penalty {penalty!r}; expected 'quadratic' or 'huber'")
     if laplacian is None:
         laplacian = graph_laplacian(height, width)
     if n_edges is None:
@@ -81,17 +159,37 @@ def objective(field_grid, pi, mu, sigma, lam, laplacian=None, n_edges=None):
     return nll_over_n + lam * smooth
 
 
-def objective_gradient(field_grid, pi, mu, sigma, lam, laplacian=None, n_edges=None):
+def objective_gradient(
+    field_grid,
+    pi,
+    mu,
+    sigma,
+    lam,
+    laplacian=None,
+    n_edges=None,
+    *,
+    penalty="quadratic",
+    delta=0.05,
+    edges=None,
+):
     """Gradient of `objective` w.r.t. the field, shape `[H, W]`.
 
     grad J_lambda = (1/N) * grad NLL + (lambda/|E_8|) * 2 L x. The NLL part is the
     closed form in `nll_gradient`; the smoothness part is the edge-mean-normalised
-    `2 L x` so it matches the `(x^T L x)/|E_8|` term in `objective`.
+    `2 L x` so it matches the `(x^T L x)/|E_8|` term in `objective`. With
+    `penalty="huber"` the smoothness part is `huber_penalty_gradient` instead.
     """
 
     field_grid = np.asarray(field_grid, dtype=float)
     height, width = field_grid.shape
     n = height * width
+    if penalty == "huber":
+        if edges is None:
+            edges = grid_edges_8(height, width)
+        grad_nll = nll_gradient(field_grid, pi, mu, sigma) / n
+        return grad_nll + lam * huber_penalty_gradient(field_grid, edges, delta)
+    if penalty != "quadratic":
+        raise ValueError(f"unknown penalty {penalty!r}; expected 'quadratic' or 'huber'")
     if laplacian is None:
         laplacian = graph_laplacian(height, width)
     if n_edges is None:
@@ -153,6 +251,8 @@ def minimise_at_lambda(
     laplacian=None,
     n_edges=None,
     edges=None,
+    penalty="quadratic",
+    delta=0.05,
 ):
     """Minimise J_lambda with an Adam optimiser, warm-started from `mode_field`.
 
@@ -161,6 +261,8 @@ def minimise_at_lambda(
     non-convex landscape is probed from a few nearby basins. The lowest-energy
     field is kept; `restart_spread` (energy range) and `restart_field_spread`
     (worst per-cell value range across restarts) are exposed as stability outputs.
+    `penalty`/`delta` select the smoothness term (see `objective`); the default
+    `"quadratic"` is the literal pre-ablation code path.
     """
 
     pi = np.asarray(pi, dtype=float)
@@ -179,7 +281,18 @@ def minimise_at_lambda(
     warm, _ = mode_field(pi, mu, sigma)
 
     def grad_fn(x):
-        return objective_gradient(x, pi, mu, sigma, lam, laplacian=laplacian, n_edges=n_edges)
+        return objective_gradient(
+            x,
+            pi,
+            mu,
+            sigma,
+            lam,
+            laplacian=laplacian,
+            n_edges=n_edges,
+            penalty=penalty,
+            delta=delta,
+            edges=edges,
+        )
 
     fields = []
     energies = []
@@ -188,7 +301,18 @@ def minimise_at_lambda(
         x_opt = _adam_descent(x0, grad_fn, n_steps=n_steps, lr=lr)
         fields.append(x_opt)
         energies.append(
-            objective(x_opt, pi, mu, sigma, lam, laplacian=laplacian, n_edges=n_edges)
+            objective(
+                x_opt,
+                pi,
+                mu,
+                sigma,
+                lam,
+                laplacian=laplacian,
+                n_edges=n_edges,
+                penalty=penalty,
+                delta=delta,
+                edges=edges,
+            )
         )
 
     fields = np.stack(fields)  # [R, H, W]
@@ -247,12 +371,16 @@ def lambda_sweep(
     lr=0.05,
     restart_scale=1.0,
     seed=0,
+    penalty="quadratic",
+    delta=0.05,
 ):
     """Produce the Pareto curve (NLL/N vs scale-free R̃) over a lambda grid.
 
     Each lambda is solved by `minimise_at_lambda` from its own freshly-seeded RNG
     (seed offset by the lambda index) so the sweep is reproducible and order
     independent. Returns a list of `LambdaSweepPoint`, one per lambda.
+    `penalty`/`delta` select the smoothness term (see `objective`); each point's
+    `energy` is then J under that penalty.
     """
 
     pi = np.asarray(pi, dtype=float)
@@ -280,6 +408,8 @@ def lambda_sweep(
             laplacian=laplacian,
             n_edges=n_edges,
             edges=edges,
+            penalty=penalty,
+            delta=delta,
         )
         points.append(
             LambdaSweepPoint(

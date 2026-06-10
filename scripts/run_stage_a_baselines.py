@@ -14,9 +14,9 @@ Outputs land in ``outputs/runs/stage_a_baselines/``:
   * ``stage_a_scores.csv`` / ``stage_a_scores.md`` — the score table,
   * ``<dataset>_baselines.npz`` — the generated baseline fields per dataset.
 
-Debug arrays (``truth``, ``component_fields``, ``perm``) are never fed to the
-baselines; they are loaded only for the optional ``--diagnostics`` NLL/roughness
-of the held-out ground truth, where present.
+Debug arrays (``component_fields``, ``perm``) are never fed to the baselines.
+The toys are truth-free, so ``--diagnostics`` only scores a held-out reference
+field if a legacy ``truth`` array happens to be present.
 """
 
 import argparse
@@ -45,12 +45,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = REPO_ROOT / "outputs" / "data"
 RUN_DIR = REPO_ROOT / "outputs" / "runs" / "stage_a_baselines"
 
-DATASETS = (
-    "phase_1_field",
-    "phase_1_field_heteroscedastic_sigma",
-    "phase_1_regime_boundary_pi",
-    "phase_1_multimodal",
-)
+# Stage A baselines are scored on the homoscedastic headline toy only; the
+# heteroscedastic toy is generated and visualised in notebook 00 but is not part
+# of the baseline / gradient-descent evidence path.
+DATASETS = ("phase_1_homoscedastic",)
 
 
 def _score(field, pi, mu, sigma, edges, laplacian):

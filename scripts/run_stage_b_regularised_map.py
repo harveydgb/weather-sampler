@@ -20,9 +20,10 @@ of lambda values. It emits, per dataset:
 
 Every chosen field is *also* re-scored with ``score_field`` (the Stage A scorer)
 so the numbers sit in exactly the same brackets as the Stage A baselines (iid,
-mode_map, a_star, smoothed_map). The multimodal toy is the headline (§3.4, C7).
+mode_map, a_star, smoothed_map). Stage B runs on the homoscedastic headline toy
+(quadratic slowly-varying means + floored Dirichlet pi).
 
-Debug arrays (``truth``, ``component_fields``, ``perm``) are never loaded.
+Debug arrays (``component_fields``, ``perm``) are never loaded.
 """
 
 import argparse
@@ -39,20 +40,17 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = REPO_ROOT / "outputs" / "data"
 RUN_DIR = REPO_ROOT / "outputs" / "runs" / "stage_b_regularised_map"
 
-DATASETS = (
-    "phase_1_field",
-    "phase_1_field_heteroscedastic_sigma",
-    "phase_1_regime_boundary_pi",
-    "phase_1_multimodal",
-)
+# Stage B runs on the homoscedastic headline toy only (same evidence path as
+# Stage A); the heteroscedastic toy lives in notebook 00.
+DATASETS = ("phase_1_homoscedastic",)
 
 # lambda grid: 0 (mode-field / NLL-only anchor) then a log-spaced sweep up to
 # lambda = 2, tracing the NLL/N-vs-R̃ Pareto curve on the 8x8 toy in the per-edge
-# units of J_lambda (§3.1a). The grid stops at 2 on purpose: beyond it the
-# multimodal toy enters a saturated over-smoothing regime (NLL/N pins ~2.90, the
-# field goes near-flat, R̃ differences fall within restart noise, and lambda ~ 5
-# needs many more steps to converge) -- well past the operating knee (lambda ~
-# 0.1-0.5), so it is off the operating path. Pass --lambdas to extend it.
+# units of J_lambda (§3.1a). The grid stops at 2 on purpose: beyond it the field
+# enters a saturated over-smoothing regime (the field goes near-flat, R̃
+# differences fall within restart noise, and large lambda needs many more steps
+# to converge) -- well past the operating knee (lambda ~ 0.1-0.5), so it is off
+# the operating path. Pass --lambdas to extend it.
 DEFAULT_LAMBDAS = (0.0, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0)
 
 
@@ -163,8 +161,8 @@ def main():
         default=4000,
         help=(
             "Adam steps per restart. Needs to be large enough for the "
-            "strong-smoothing (large-lambda) tail to converge on the "
-            "well-separated multimodal toy; 600 under-optimises lambda >= 5."
+            "strong-smoothing (large-lambda) tail to converge; 600 "
+            "under-optimises lambda >= 5."
         ),
     )
     parser.add_argument("--lr", type=float, default=0.05)

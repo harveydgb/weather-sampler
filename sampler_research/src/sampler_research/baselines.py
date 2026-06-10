@@ -98,6 +98,84 @@ def smoothed_map_baseline(pi, mu, sigma, step=0.1, n_iters=10):
     return laplacian_blur(field, laplacian, step=step, n_iters=n_iters)
 
 
+def _argmin_by_value(cost, values):
+    """Index minimising `cost`, ties broken by smallest `values` (label-free, C5).
+
+    Shared by the smoothest mode-assignment baseline (`a*`) and the Method 4
+    value-space MRF: every selection breaks ties by candidate *value*, never by
+    the raw label index, so the result is invariant to per-cell component
+    relabeling even when the weights or the local cost are tied.
+    """
+
+    best = np.flatnonzero(np.isclose(cost, cost.min()))
+    return int(best[np.argmin(values[best])])
+
+
+def _value_space_icm(
+    candidate_values,
+    valid_mask,
+    unary,
+    edges,
+    warm_start,
+    *,
+    pairwise_weight=1.0,
+    max_sweeps=50,
+):
+    """Row-major ICM over per-cell value candidates (shared `a*` / Method 4 core).
+
+    Minimise, by iterated conditional modes starting from `warm_start`,
+
+        sum_i unary_i(a_i)
+          + pairwise_weight * sum_{(i,j) in E} (v_{i,a_i} - v_{j,a_j})^2
+
+    where `v = candidate_values` are per-cell candidate *values* (`[N, Kmax]`,
+    ragged cells padded to a finite sentinel) and the pairwise term couples on
+    those values, never on the label index (C5). Each sweep sets every cell's
+    candidate to the one minimising its local (unary + pairwise-to-current-
+    neighbours) cost, ties broken by smallest candidate value. Padded slots are
+    excluded via `valid_mask` (their local cost is forced to `+inf`), so they are
+    never selected as long as each cell has at least one valid candidate.
+    Returns the final assignment `[N]`.
+
+    The default `pairwise_weight=1.0` with a zero `unary` and an all-true
+    `valid_mask` reproduces the `a*` baseline bit-for-bit; Method 4 passes
+    `pairwise_weight = beta * N / |E|` so the same sweep minimises its normalised
+    energy `J_beta` (see `method4_mrf.solve_value_mrf`).
+    """
+
+    candidate_values = np.asarray(candidate_values, dtype=float)
+    unary = np.asarray(unary, dtype=float)
+    valid_mask = np.asarray(valid_mask, dtype=bool)
+    edges = np.asarray(edges, dtype=np.int64)
+    n = candidate_values.shape[0]
+
+    neighbours = [[] for _ in range(n)]
+    for i, j in edges:
+        neighbours[i].append(j)
+        neighbours[j].append(i)
+
+    assignment = np.asarray(warm_start, dtype=np.int64).copy()
+    for _ in range(max_sweeps):
+        changed = False
+        for i in range(n):
+            if not neighbours[i]:
+                continue
+            neighbour_vals = np.array(
+                [candidate_values[m, assignment[m]] for m in neighbours[i]]
+            )
+            pairwise = np.sum(
+                (candidate_values[i][:, None] - neighbour_vals[None, :]) ** 2, axis=-1
+            )
+            cost = np.where(valid_mask[i], unary[i] + pairwise_weight * pairwise, np.inf)
+            best = _argmin_by_value(cost, candidate_values[i])
+            if best != assignment[i]:
+                assignment[i] = best
+                changed = True
+        if not changed:
+            break
+    return assignment
+
+
 def smoothest_mode_assignment(pi, mu, edges=None, use_pi_unary=False, max_sweeps=50):
     """Smoothest high-likelihood mode-assignment field `a*`.
 
@@ -108,7 +186,10 @@ def smoothest_mode_assignment(pi, mu, edges=None, use_pi_unary=False, max_sweeps
 
     Solved by iterated conditional modes: warm-start from the highest-`pi`
     component, then repeatedly set each cell's component to the one minimising
-    its local cost given the current neighbours. Returns `(field, assignment)`.
+    its local cost given the current neighbours. The sweep itself is the shared
+    `_value_space_icm` core (also used by Method 4), called here with every
+    component a valid candidate, unit pairwise weight, and a zero (or `-log pi`)
+    unary. Returns `(field, assignment)`.
 
     Both selections break ties by component *value* (smallest `mu`), never by the
     raw label index. This keeps `a*` invariant to per-cell component relabeling
@@ -126,37 +207,15 @@ def smoothest_mode_assignment(pi, mu, edges=None, use_pi_unary=False, max_sweeps
 
     mu_flat = mu.reshape(n, k)
     unary = -np.log(pi.reshape(n, k)) if use_pi_unary else np.zeros((n, k))
-
-    neighbours = [[] for _ in range(n)]
-    for i, j in edges:
-        neighbours[i].append(j)
-        neighbours[j].append(i)
-
-    def _argmin_by_value(cost, values):
-        """Index minimising `cost`, ties broken by smallest `values` (label-free)."""
-        best = np.flatnonzero(np.isclose(cost, cost.min()))
-        return int(best[np.argmin(values[best])])
+    valid_mask = np.ones((n, k), dtype=bool)
 
     # Warm-start: highest pi, ties broken by smallest mean value (not label index).
     pi_flat = pi.reshape(n, k)
-    assignment = np.array(
-        [_argmin_by_value(-pi_flat[i], mu_flat[i]) for i in range(n)]
+    warm_start = np.array([_argmin_by_value(-pi_flat[i], mu_flat[i]) for i in range(n)])
+
+    assignment = _value_space_icm(
+        mu_flat, valid_mask, unary, edges, warm_start, pairwise_weight=1.0, max_sweeps=max_sweeps
     )
-
-    for _ in range(max_sweeps):
-        changed = False
-        for i in range(n):
-            if not neighbours[i]:
-                continue
-            neighbour_vals = np.array([mu_flat[m, assignment[m]] for m in neighbours[i]])
-            pairwise = np.sum((mu_flat[i][:, None] - neighbour_vals[None, :]) ** 2, axis=-1)
-            best = _argmin_by_value(unary[i] + pairwise, mu_flat[i])
-            if best != assignment[i]:
-                assignment[i] = best
-                changed = True
-        if not changed:
-            break
-
     field = mu_flat[np.arange(n), assignment].reshape(height, width)
     return field, assignment.reshape(height, width)
 

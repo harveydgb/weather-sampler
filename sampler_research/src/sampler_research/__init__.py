@@ -5,7 +5,12 @@ roughness metrics, and yardstick fields).
 """
 
 from sampler_research.io import SAMPLER_KEYS, load_sampler_arrays
-from sampler_research.toy import Phase1ToyConfig, make_phase1_toy
+from sampler_research.toy import (
+    Phase1ToyConfig,
+    make_phase1_toy,
+    make_random_soft_dirichlet_pi,
+    save_phase1_toy,
+)
 from sampler_research.graph import (
     graph_laplacian,
     grid_edges_8,
@@ -33,12 +38,31 @@ from sampler_research.regularised_map import (
     objective,
     objective_gradient,
 )
+from sampler_research.method4_mrf import (
+    BetaSweepPoint,
+    ModeExtraction,
+    ValueMRFResult,
+    beta_sweep,
+    delta_nll_to_best_mode,
+    extract_gmm_modes,
+    solve_value_mrf,
+    value_mrf_energy,
+)
+from sampler_research.method5_langevin import (
+    LangevinResult,
+    LangevinSweepPoint,
+    langevin_at_lambda,
+    langevin_chain,
+    langevin_sweep,
+)
 
 __all__ = [
     "Phase1ToyConfig",
     "SAMPLER_KEYS",
     "load_sampler_arrays",
     "make_phase1_toy",
+    "make_random_soft_dirichlet_pi",
+    "save_phase1_toy",
     "graph_laplacian",
     "grid_edges_8",
     "roughness_edge_mean",
@@ -61,4 +85,17 @@ __all__ = [
     "nll_gradient",
     "objective",
     "objective_gradient",
+    "BetaSweepPoint",
+    "ModeExtraction",
+    "ValueMRFResult",
+    "beta_sweep",
+    "delta_nll_to_best_mode",
+    "extract_gmm_modes",
+    "solve_value_mrf",
+    "value_mrf_energy",
+    "LangevinResult",
+    "LangevinSweepPoint",
+    "langevin_at_lambda",
+    "langevin_chain",
+    "langevin_sweep",
 ]

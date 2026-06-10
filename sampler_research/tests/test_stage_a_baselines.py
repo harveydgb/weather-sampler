@@ -20,8 +20,8 @@ from sampler_research.baselines import (
 from sampler_research.toy import Phase1ToyConfig, make_phase1_toy
 
 
-def _regime_toy():
-    toy = make_phase1_toy(Phase1ToyConfig(use_regime_boundary_pi=True))
+def _headline_toy():
+    toy = make_phase1_toy(Phase1ToyConfig())
     return toy["pi"], toy["mu"], toy["sigma"]
 
 
@@ -69,14 +69,14 @@ def test_laplacian_blur_is_mean_preserving() -> None:
 
 
 def test_gmm_nll_lower_at_mode_than_off_mode() -> None:
-    pi, mu, sigma = _regime_toy()
+    pi, mu, sigma = _headline_toy()
     field, _ = mode_field(pi, mu, sigma)
     off = field + 5.0
     assert gmm_nll_over_n(field, pi, mu, sigma) < gmm_nll_over_n(off, pi, mu, sigma)
 
 
 def test_iid_is_rougher_than_coherent_baselines() -> None:
-    pi, mu, sigma = _regime_toy()
+    pi, mu, sigma = _headline_toy()
     edges = grid_edges_8(8, 8)
     rng = np.random.default_rng(0)
 
@@ -90,7 +90,7 @@ def test_iid_is_rougher_than_coherent_baselines() -> None:
 
 
 def test_astar_is_at_most_as_rough_as_per_cell_mode() -> None:
-    pi, mu, sigma = _regime_toy()
+    pi, mu, sigma = _headline_toy()
     edges = grid_edges_8(8, 8)
     mode_f, _ = mode_field(pi, mu, sigma)
     astar, _ = smoothest_mode_assignment(pi, mu)
@@ -101,7 +101,7 @@ def test_astar_is_at_most_as_rough_as_per_cell_mode() -> None:
 
 
 def test_astar_couples_on_values_not_label_index() -> None:
-    pi, mu, _ = _regime_toy()
+    pi, mu, _ = _headline_toy()
     astar, _ = smoothest_mode_assignment(pi, mu)
 
     rng = np.random.default_rng(7)
@@ -114,7 +114,7 @@ def test_astar_couples_on_values_not_label_index() -> None:
 
 
 def test_variance_scaled_rejects_invalid_alpha() -> None:
-    pi, mu, sigma = _regime_toy()
+    pi, mu, sigma = _headline_toy()
     for bad_alpha in (0.0, -0.5, 1.5):
         try:
             variance_scaled_baseline(pi, mu, sigma, alpha=bad_alpha)
@@ -124,7 +124,7 @@ def test_variance_scaled_rejects_invalid_alpha() -> None:
 
 
 def test_mixture_mean_field_matches_helper() -> None:
-    pi, mu, _ = _regime_toy()
+    pi, mu, _ = _headline_toy()
     field = mixture_mean_field(pi, mu)
     assert field.shape == (8, 8)
     assert np.allclose(field, np.sum(pi * mu, axis=-1))

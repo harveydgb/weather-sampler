@@ -32,10 +32,8 @@ from sampler_research.io import load_sampler_arrays
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "outputs" / "data"
 DATASETS = (
-    "phase_1_field",
-    "phase_1_field_heteroscedastic_sigma",
-    "phase_1_regime_boundary_pi",
-    "phase_1_multimodal",
+    "phase_1_homoscedastic",
+    "phase_1_heteroscedastic",
 )
 
 
@@ -138,7 +136,7 @@ def test_astar_invariant_to_per_cell_relabeling(toy):
     Shuffling the component axis per cell (so a given label index no longer
     denotes the same component anywhere) must leave the produced field bit-exact.
     This holds even under uniform-`pi`/tied costs because `a*` breaks every tie
-    by component value, not by label index (C5). Run on all three on-disk toys.
+    by component value, not by label index (C5). Run on the on-disk toys.
     """
 
     name, pi, mu, _ = toy
