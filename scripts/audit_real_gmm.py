@@ -186,6 +186,11 @@ def main():
         dlons = np.diff(ring_lons)
         print(f"  {tag} ring: n={sel.sum()}, lon spacing {np.median(dlons):.4f} deg "
               f"(max dev {np.abs(dlons - np.median(dlons)).max():.2e}), first lon {ring_lons[0]:.4f}")
+    # start longitude of EVERY ring (establishes the "-180 start" claim for all 192)
+    lats_r = np.round(lats, 4)
+    first_lons = np.array([lons[lats_r == rl].min() for rl in ring_lats])
+    print(f"  all {n_rings} rings: first lon in [{first_lons.min():.4f}, {first_lons.max():.4f}] "
+          f"(all == -180: {bool(np.allclose(first_lons, -180.0))})")
 
     # neighbour spacing for graph feasibility
     xyz = np.stack(
@@ -205,7 +210,7 @@ def main():
         for j in idx[i, 1:]:
             edges.add((i, j) if i < j else (j, i))
     print(f"  k=8 NN graph: |E| = {len(edges)} undirected edges "
-          f"(mutualised from {n * 8} directed)")
+          f"(union-symmetrised from {n * 8} directed; mutual-intersection would be smaller)")
     print(f"  1st-neighbour distance km: min={arc_km[:, 0].min():.1f}  "
           f"median={np.median(arc_km[:, 0]):.1f}  max={arc_km[:, 0].max():.1f}")
     print(f"  8th-neighbour distance km: median={np.median(arc_km[:, -1]):.1f}  "
@@ -349,8 +354,9 @@ def main():
     section("9. Numerics / feasibility probes")
     z_mm = np.min(np.abs(mean_field[:, None] - mu) / sigma, axis=1)
     print(f"  mixture-mean field, z to nearest component: median={np.median(z_mm):.2f}  "
-          f"max={z_mm.max():.2f}  (float64 normal pdf underflows ~ z>38; "
-          f"float32 ~ z>9.3 — linear-space NLL code at risk if any field strays)")
+          f"max={z_mm.max():.2f}  (normal pdf exp(-z^2/2) underflows ~ z>37.6 in "
+          f"float64, ~ z>13.2 in float32 (14.4 with subnormals) — linear-space NLL "
+          f"code at risk if any field strays)")
     dens_mm = np.sum(pi * np.exp(-0.5 * ((mean_field[:, None] - mu) / sigma) ** 2)
                      / (sigma * np.sqrt(2 * np.pi)), axis=1)
     print(f"  mixture density at mixture mean: min={dens_mm.min():.3e} "
