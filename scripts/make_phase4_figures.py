@@ -10,11 +10,19 @@ Writes to outputs/figures/:
   phase_4_variogram.png          sampled spherical variograms (descriptive)
   phase_4_bimodal_enrichment.png W1 MUST: dNLL>0.125 enrichment in the audit
                                  S4 bimodal masks + Mollweide dNLL map
+  phase_4_robustness.png         unary-gap histogram (why the Method 4 beta
+                                 sweep is pinned) + unit-vs-weighted-graph
+                                 matched-coherence points (needs
+                                 robustness_probes.json from
+                                 scripts/run_phase4_probes.py)
 
 Figures are generated here (not in notebook 04) so the MUST figure task does
 not depend on notebook execution; the notebook displays these files.
+`--only name [name ...]` regenerates a subset (maps / pareto / variogram /
+enrichment / robustness) without rewriting the other committed PNGs.
 """
 
+import argparse
 import csv
 import json
 from pathlib import Path
@@ -209,14 +217,94 @@ def fig_bimodal_enrichment(latlons, star):
     print("wrote phase_4_bimodal_enrichment.png")
 
 
+def fig_robustness():
+    with np.load(RUN_DIR / "modes.npz") as f:
+        mode_unary = f["mode_unary"]
+        mode_counts = f["mode_counts"]
+    probes = json.loads((RUN_DIR / "robustness_probes.json").read_text())
+
+    # mode_unary is +inf on padded slots, so columns 0/1 of the sort are the
+    # best and second-best real modes wherever mode_counts >= 2.
+    multi = mode_counts >= 2
+    sorted_unary = np.sort(mode_unary, axis=1)
+    gaps = (sorted_unary[:, 1] - sorted_unary[:, 0])[multi]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.5, 4.4))
+
+    ax1.hist(gaps, bins=60, color="tab:blue")
+    med = float(np.median(gaps))
+    ax1.axvline(med, color="tab:red", ls="--", lw=1, label=f"median {med:.1f} nats")
+    beta100 = probes["m4_beta_scale"]["betas"]["100"]
+    ax1.set_xlabel("unary gap, 2nd-best minus best mode (nats)")
+    ax1.set_ylabel(f"multi-mode cells (n = {int(multi.sum()):,})")
+    ax1.set_title(
+        "Near-one-hot unary gaps pin the Method 4 sweep\n"
+        f"(even beta=100 moves only {beta100['cells_moved_off_unary_best']} of "
+        f"{probes['m4_beta_scale']['n_cells']:,} cells)",
+        fontsize=10,
+    )
+    ax1.legend(fontsize=8)
+
+    rows = _load_rows()
+    unit_blur = next(r for r in rows if r["name"] == "smoothed_map_n10")
+    unit_star = next(r for r in rows if r["name"] == "m1_star")
+    w = probes["weighted_graph"]
+    points = [
+        ("smoothed-MAP n10", float(unit_blur["r_tilde"]), float(unit_blur["nll_over_n"]),
+         float(unit_blur["dnll_frac_gt_0p125"]), "tab:orange", "o"),
+        ("M1 @ lambda*=94", float(unit_star["r_tilde"]), float(unit_star["nll_over_n"]),
+         float(unit_star["dnll_frac_gt_0p125"]), "tab:blue", "o"),
+        ("smoothed-MAP n10 (w)", w["smoothed_map_n10_weighted"]["r_tilde"],
+         w["smoothed_map_n10_weighted"]["nll_over_n"],
+         w["smoothed_map_n10_weighted"]["dnll_frac_gt_0p125"], "tab:orange", "s"),
+        (f"M1 @ lambda*_w={w['lambda_star_weighted']:.0f} (w)",
+         w["m1_at_lambda_star_weighted"]["r_tilde"],
+         w["m1_at_lambda_star_weighted"]["nll_over_n"],
+         w["m1_at_lambda_star_weighted"]["dnll_frac_gt_0p125"], "tab:blue", "s"),
+    ]
+    for label, rt, nll, tail, color, marker in points:
+        ax2.scatter(rt, nll, color=color, marker=marker, s=70, zorder=5)
+        ax2.annotate(f"{label}\ntail>0.125: {tail:.1%}", (rt, nll), fontsize=7,
+                     xytext=(6, -10), textcoords="offset points")
+    ax2.set_xscale("log")
+    ax2.set_xlim(2e-3, 1.2e-2)
+    ax2.set_xlabel("R~ (unit-weight metric, log axis)")
+    ax2.set_ylabel("NLL/N (nats)")
+    ax2.set_title(
+        "Edge-weight convention robustness: Method 1 beats the blur\n"
+        "at matched coherence under both conventions (circle = unit, square = weighted)",
+        fontsize=10,
+    )
+
+    fig.tight_layout()
+    fig.savefig(FIG_DIR / "phase_4_robustness.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("wrote phase_4_robustness.png")
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--only", nargs="*", default=None,
+                        help="subset of {maps, pareto, variogram, enrichment, robustness}")
+    args = parser.parse_args()
+
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     data = load_real_marginal(DATA_NPZ)
     star = json.loads((RUN_DIR / "lambda_star.json").read_text())
-    fig_maps(data["latlons"], star)
-    fig_pareto_smear(star)
-    fig_variogram()
-    fig_bimodal_enrichment(data["latlons"], star)
+    figures = {
+        "maps": lambda: fig_maps(data["latlons"], star),
+        "pareto": lambda: fig_pareto_smear(star),
+        "variogram": fig_variogram,
+        "enrichment": lambda: fig_bimodal_enrichment(data["latlons"], star),
+        "robustness": fig_robustness,
+    }
+    requested = args.only if args.only else list(figures)
+    unknown = set(requested) - set(figures)
+    if unknown:
+        raise SystemExit(f"unknown figures: {sorted(unknown)}")
+    for name in figures:
+        if name in requested:
+            figures[name]()
 
 
 if __name__ == "__main__":

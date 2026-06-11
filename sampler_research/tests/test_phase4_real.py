@@ -7,6 +7,8 @@ artifacts are absent (regenerate via scripts/run_stage_*.py).
 """
 
 import csv
+import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -52,9 +54,18 @@ STAGE_B_NPZ = (
     REPO_ROOT / "outputs" / "runs" / "stage_b_regularised_map"
     / "phase_1_homoscedastic_regularised_map.npz"
 )
+PHASE4_RUN_DIR = REPO_ROOT / "outputs" / "runs" / "phase_4_real"
 
 needs_real = pytest.mark.skipif(not REAL_NPZ.exists(), reason="real Phase 4 npz absent")
 needs_toy = pytest.mark.skipif(not TOY_NPZ.exists(), reason="phase 1 toy npz absent")
+needs_phase4_run = pytest.mark.skipif(
+    not (PHASE4_RUN_DIR / "method1_sweep.npz").exists(),
+    reason="persisted phase_4_real run artifacts absent",
+)
+slow_guard = pytest.mark.skipif(
+    not os.environ.get("PHASE4_SLOW"),
+    reason="slow convergence guard; set PHASE4_SLOW=1 to run",
+)
 
 
 @pytest.fixture(scope="module")
@@ -569,3 +580,100 @@ def test_lambda_star_unbracketed_directions():
 def test_lambda_star_no_valid_rows_raises():
     with pytest.raises(ValueError):
         select_lambda_star([0.0, 1.0], [0.5, 0.1], [False, True], 0.3)
+
+
+# --- robustness canaries (11 Jun post-implementation review, D-tests) ----------
+
+
+def test_beta_scale_canary_solver_switches_when_gap_is_small():
+    """Protects: "Method 4's pinned beta sweep is a data property (near-one-hot
+    unary gaps), not a dead solver". On a 2-cell fixture whose second cell has
+    a small (~0.4 nat) unary gap, beta=10 must move at least one cell off its
+    unary-best mode and beta=0.001 must move none.
+    """
+
+    pi = np.array([[0.9, 0.1], [0.6, 0.4]])
+    mu = np.array([[0.0, 2.0], [2.0, 0.0]])
+    sigma = np.full((2, 2), 0.2)
+    ext = extract_gmm_modes(pi, mu, sigma)
+    assert np.all(ext.mode_counts == 2)  # well-separated 10-sigma pairs
+    unary_best = np.argmin(np.where(ext.valid_mask, ext.mode_unary, np.inf), axis=1)
+    edges = np.array([[0, 1]], dtype=np.int64)
+
+    moved = {}
+    for beta in (10.0, 0.001):
+        res = solve_value_mrf(pi, mu, sigma, ext, beta, n_restarts=2,
+                              edges=edges, rng=np.random.default_rng(0), max_sweeps=30)
+        moved[beta] = int(np.sum(np.asarray(res.assignment) != unary_best))
+    assert moved[10.0] > 0  # pairwise term can switch a small-gap mode
+    assert moved[0.001] == 0  # unary pins the assignment at tiny beta
+
+
+@needs_phase4_run
+def test_lambda_star_replay_regression():
+    """Protects the lambda* = 93.74 headline against silent artifact drift:
+    re-deriving the target from anchors.npz and replaying select_lambda_star on
+    the persisted sweep must return 93.74 +- 0.5, bracketed, with no fallback
+    clauses (matching lambda_star.json).
+    """
+
+    with np.load(PHASE4_RUN_DIR / "masks.npz") as f:
+        edges = f["edges"]
+    with np.load(PHASE4_RUN_DIR / "anchors.npz") as f:
+        target_field = f["smoothed_map_n10"]
+    target, collapsed = scale_free_roughness(target_field, edges)
+    assert not collapsed
+    star = json.loads((PHASE4_RUN_DIR / "lambda_star.json").read_text())
+    assert np.isclose(target, star["target_r_tilde"], atol=1e-9)
+
+    sweep = np.load(PHASE4_RUN_DIR / "method1_sweep.npz")
+    sel = select_lambda_star(
+        sweep["lambdas"], sweep["r_tilde"], sweep["variance_collapsed"],
+        target, valid=sweep["warm_start_sane"],
+    )
+    assert abs(sel.lambda_star - 93.74) < 0.5
+    assert sel.bracketed
+    assert sel.clauses == []
+    assert np.isclose(sel.lambda_star, star["lambda_star"], atol=1e-9)
+
+
+@needs_real
+def test_blur_stability_canary_real_graph(real_data, real_edges):
+    """Protects the smoothed-MAP baseline that anchors lambda*: the blur
+    iteration x <- x - step*Lx is stable only for step < 2/lambda_max(L), and
+    on the real union-kNN graph step 0.1 sits at ~74% of that bound
+    (lambda_max ~ 14.8) -- any graph change that pushes step*lambda_max past 2
+    silently diverges the target.
+    """
+
+    from scipy.sparse.linalg import eigsh
+
+    lap = sparse_laplacian(real_data["pi"].shape[0], real_edges)
+    lmax = float(eigsh(lap, k=1, which="LM", return_eigenvectors=False)[0])
+    assert 8.0 < lmax < 20.0  # sanity: k=8 union graph, max degree ~11
+    assert 0.1 * lmax < 2.0  # stability bound for the production step
+
+
+@needs_real
+@slow_guard
+def test_lambda_tail_convergence_guard(real_data, real_edges):
+    """Protects "no variance collapse anywhere" and the Pareto tail: at the
+    largest sweep lambda (1000), doubling the Adam steps from the production
+    400 must move NLL/N by < 0.02 and R-tilde by < 2% relative, with no
+    collapse flag -- i.e. the tail rows are converged, not under-optimised.
+    Warm-start restart only (deterministic); ~5 s, gated behind PHASE4_SLOW=1.
+    """
+
+    pi, mu, sigma = real_data["pi"], real_data["mu"], real_data["sigma"]
+    lap = sparse_laplacian(pi.shape[0], real_edges)
+    results = {}
+    for n_steps in (400, 800):
+        results[n_steps] = minimise_at_lambda(
+            pi, mu, sigma, 1000.0, n_restarts=1, n_steps=n_steps, lr=0.05,
+            restart_scale=0.15, rng=np.random.default_rng(0),
+            laplacian=lap, edges=real_edges,
+        )
+    base, doubled = results[400], results[800]
+    assert not doubled.variance_collapsed
+    assert abs(doubled.nll_over_n - base.nll_over_n) < 0.02
+    assert abs(doubled.r_tilde - base.r_tilde) / base.r_tilde < 0.02

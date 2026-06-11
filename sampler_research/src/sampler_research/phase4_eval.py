@@ -4,7 +4,7 @@ Shared by the runner (`scripts/run_phase4_real.py`), the report notebook, and
 the test suite so all three quote identical numbers. The protocol facts live in
 phase_4_plan.md (S5 diagnostics, S6 lambda-selection rule) and the data facts in
 phase_4_data_audit.md (S4 multimodality census, S5 grid). A global mean dilutes
-the ~604-cell practically-bimodal subset ~60:1, so every metric is reported per
+the ~604-cell practically-bimodal subset ~67:1, so every metric is reported per
 stratum; the bimodal stratum is the headline read.
 """
 

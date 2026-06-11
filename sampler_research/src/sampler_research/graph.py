@@ -187,7 +187,13 @@ def laplacian_blur(x, laplacian, step=0.1, n_iters=10):
 
     Repeated `x <- x - step * L x` smooths over the same `E_8` graph used for
     roughness. The update is mean-preserving (`L` rows sum to zero) and, for a
-    small enough `step`, contracts toward the field mean.
+    small enough `step`, contracts toward the field mean. Quantitatively:
+    stability requires `step < 2 / lambda_max(L)`; eigenmodes with
+    `step * lambda > 1` decay with oscillating sign, so monotone smoothing
+    needs `step < 1 / lambda_max(L)`. On the real union-kNN graph
+    `lambda_max ~ 14.8`, so the production `step = 0.1` is stable but not
+    monotone (`step * lambda_max ~ 1.48`) -- guarded by a canary test; check
+    this bound again if `k`, the weights, or `step` ever change.
     """
 
     flat = _as_flat_field(x).copy()
