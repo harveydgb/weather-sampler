@@ -30,6 +30,31 @@ def mixture_pdf(x, pi, mu, sigma):
     return np.sum(np.asarray(pi) * normal_pdf(np.asarray(x)[..., None], mu, sigma), axis=-1)
 
 
+def gmm_log_pdf(x, pi, mu, sigma):
+    """Log GMM density `log p(x)` via a max-shifted logsumexp (phase_4_plan §1).
+
+    Shape-agnostic: the mixture axis is the final axis of `pi`/`mu`/`sigma` and
+    `x` carries every leading axis (`[N]` or `[H, W]`). Equals
+    `log(mixture_pdf(...))` wherever the linear-space density does not
+    underflow, and stays finite far off-mode (e.g. a 40-sigma probe) where the
+    float64 linear density is a true zero. Dead components (`pi == 0`)
+    contribute `-inf` log terms and drop out of the logsumexp.
+    """
+
+    x = np.asarray(x, dtype=float)
+    pi = np.asarray(pi, dtype=float)
+    mu = np.asarray(mu, dtype=float)
+    sigma = np.asarray(sigma, dtype=float)
+
+    z = (x[..., None] - mu) / sigma
+    with np.errstate(divide="ignore"):
+        log_comp = np.log(pi) - np.log(sigma) - 0.5 * z * z - 0.5 * np.log(2.0 * np.pi)
+    shift = np.max(log_comp, axis=-1, keepdims=True)
+    shift = np.where(np.isfinite(shift), shift, 0.0)
+    with np.errstate(divide="ignore"):
+        return shift[..., 0] + np.log(np.sum(np.exp(log_comp - shift), axis=-1))
+
+
 def mixture_mean(pi, mu):
     """Return the per-location mixture mean."""
 
@@ -60,8 +85,14 @@ def sample_iid_gmm(
     if not np.allclose(pi.sum(axis=-1), 1.0):
         raise ValueError("mixture weights must sum to 1 along the final axis")
 
+    # Vectorised inverse-CDF component draw (one uniform per location); replaces
+    # the per-row `rng.choice` loop, which was the only O(N)-python part.
     flat_pi = pi.reshape(-1, pi.shape[-1])
-    flat_components = np.array([rng.choice(pi.shape[-1], p=row) for row in flat_pi])
+    cdf = np.cumsum(flat_pi, axis=-1)
+    u = rng.random(flat_pi.shape[0])
+    flat_components = np.minimum(
+        np.sum(u[:, None] > cdf, axis=-1), pi.shape[-1] - 1
+    ).astype(np.int64)
     component_index = flat_components.reshape(pi.shape[:-1])
 
     flat_mu = mu.reshape(-1, mu.shape[-1])

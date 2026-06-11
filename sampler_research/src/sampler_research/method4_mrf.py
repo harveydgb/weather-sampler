@@ -28,12 +28,18 @@ value-space ICM core `_value_space_icm` that also drives the `a*` baseline. The
 warm-start *policy* differs per caller (a* = highest-pi; Method 4 restart 0 =
 unary-best), so it is passed in rather than hard-coded.
 
-The mean-shift mode finder uses the shared-sigma 1D fixed point
-`v <- sum_k r_k(v) mu_{ik}` (Carreira-Perpinan 2000). This is an *exact*
-stationary-point iteration when sigma is component-shared within a cell, which
-holds for both Phase 1 toys (C4: homoscedastic sigma=1, and the heteroscedastic
-variant is component-shared within each cell). Per Carreira-Perpinan & Williams
-(2003) the equal-covariance 1D case yields at most K modes, so `Kmax = K`.
+The mean-shift mode finder iterates the *heteroscedastic* stationary point
+
+    v <- (sum_k r_k(v) mu_{ik} / sigma_{ik}^2) / (sum_k r_k(v) / sigma_{ik}^2)
+
+which is the exact zero of `p'(v)` for per-component sigma (phase_4_plan §3).
+When sigma is component-shared within a cell it reduces algebraically to the
+shared-sigma fixed point `v <- sum_k r_k(v) mu_{ik}` (Carreira-Perpinan 2000)
+used previously, so both Phase 1 toys reproduce bit-near. For per-component
+sigma the equal-covariance at-most-K mode bound (Carreira-Perpinan & Williams
+2003) no longer strictly applies — >K modes are a theoretical 1D possibility —
+but K per-mean starts with `Kmax = K` padding are kept: the diagnostic needs
+good candidates, not exhaustive enumeration.
 """
 
 from dataclasses import dataclass
@@ -42,7 +48,7 @@ from dataclasses import field as _field
 import numpy as np
 
 from sampler_research.baselines import _value_space_icm, _argmin_by_value, gmm_nll_over_n
-from sampler_research.gmm import mixture_pdf, normal_pdf
+from sampler_research.gmm import gmm_log_pdf, mixture_pdf, normal_pdf
 from sampler_research.graph import grid_edges_8, roughness_edge_mean, scale_free_roughness
 from sampler_research.spectral import spectral_roughness
 
@@ -70,8 +76,16 @@ class ModeExtraction:
     valid_mask: np.ndarray  # [N, Kmax] bool
     mode_unary: np.ndarray  # [N, Kmax], -log p_i(mode); +inf on padded slots
     mode_counts: np.ndarray  # [N] int, number of real modes per cell
-    height: int
-    width: int
+    height: int = None  # toy 2D grid shape; None for flat [N, K] extractions
+    width: int = None
+
+    @property
+    def field_shape(self):
+        """Shape a per-cell field should take: `(H, W)` for the toy, `(N,)` flat."""
+
+        if self.height is None:
+            return (self.mode_values.shape[0],)
+        return (self.height, self.width)
 
 
 def extract_gmm_modes(
@@ -86,24 +100,34 @@ def extract_gmm_modes(
 ):
     """Extract each cell's GMM modes by 1D mean-shift; return padded candidates.
 
-    For every cell the fixed point `v <- sum_k r_k(v) mu_{ik}` (responsibilities
-    `r_k(v) = pi_k N(v; mu_k, sigma_k^2) / p(v)`) is iterated from each component
-    mean to convergence, duplicate fixed points are merged within `merge_tol`,
-    survivors are sorted by value and scored with the unary `-log p_i(mode)`
-    (floored by `density_floor` for finite logs). Returns a `ModeExtraction`
-    whose ragged per-cell mode sets are padded to `Kmax = K` (the equal-sigma 1D
-    bound): values padded with a finite sentinel, unary padded with `+inf`.
+    For every cell the heteroscedastic fixed point
+    `v <- (sum_k r_k(v) mu_k / sigma_k^2) / (sum_k r_k(v) / sigma_k^2)`
+    (responsibilities `r_k(v) = pi_k N(v; mu_k, sigma_k^2) / p(v)`) is iterated
+    from each component mean to convergence, duplicate fixed points are merged
+    within `merge_tol`, survivors are sorted by value and scored with the unary
+    `-log p_i(mode)` (floored by `density_floor` for finite logs). Returns a
+    `ModeExtraction` whose ragged per-cell mode sets are padded to `Kmax = K`
+    (see the module docstring for the >K caveat): values padded with a finite
+    sentinel, unary padded with `+inf`. Accepts `[H, W, K]` (toy) or flat
+    `[N, K]` parameters; the latter leaves `height`/`width` as `None`.
     """
 
     pi = np.asarray(pi, dtype=float)
     mu = np.asarray(mu, dtype=float)
     sigma = np.asarray(sigma, dtype=float)
-    height, width, k = mu.shape
-    n = height * width
+    if mu.ndim == 3:
+        height, width, k = mu.shape
+        n = height * width
+    elif mu.ndim == 2:
+        height = width = None
+        n, k = mu.shape
+    else:
+        raise ValueError("mu must have shape [H, W, K] or [N, K]")
 
     pi_f = pi.reshape(n, k)
     mu_f = mu.reshape(n, k)
     sigma_f = sigma.reshape(n, k)
+    inv_var = 1.0 / sigma_f**2  # [N, K]
 
     # Vectorised 1D Gaussian mean-shift, one trajectory per component mean.
     # v has shape [N, S] with S = K starts; responsibilities are [N, S, K].
@@ -114,7 +138,10 @@ def extract_gmm_modes(
         )  # [N, S, K]
         density = np.sum(comp, axis=-1)  # [N, S]; > 0 (point lies within the mu range)
         resp = comp / density[..., None]  # [N, S, K]
-        v_new = np.sum(resp * mu_f[:, None, :], axis=-1)  # [N, S]
+        # Heteroscedastic stationary point: precision-weighted responsibility mean.
+        numer = np.sum(resp * (mu_f * inv_var)[:, None, :], axis=-1)  # [N, S]
+        denom = np.sum(resp * inv_var[:, None, :], axis=-1)  # [N, S]
+        v_new = numer / denom
         delta = np.max(np.abs(v_new - v))
         v = v_new
         if delta < tol:
@@ -166,7 +193,7 @@ def value_mrf_energy(assignment, extraction, edges, beta):
     n = extraction.mode_values.shape[0]
     a = np.asarray(assignment, dtype=np.int64).reshape(n)
     rows = np.arange(n)
-    field = extraction.mode_values[rows, a].reshape(extraction.height, extraction.width)
+    field = extraction.mode_values[rows, a]  # flat; roughness_edge_mean flattens anyway
     unary_mean = float(np.mean(extraction.mode_unary[rows, a]))
     pairwise_mean = roughness_edge_mean(field, edges)
     return unary_mean + beta * pairwise_mean
@@ -176,20 +203,21 @@ def value_mrf_energy(assignment, extraction, edges, beta):
 class ValueMRFResult:
     """Outcome of one multi-restart value-space MRF solve at a fixed beta."""
 
-    field: np.ndarray  # lowest-energy field found, [H, W]
-    assignment: np.ndarray  # chosen mode index per cell, [H, W]
+    field: np.ndarray  # lowest-energy field found, [H, W] or flat [N]
+    assignment: np.ndarray  # chosen mode index per cell, [H, W] or flat [N]
     energy: float  # J_beta of `field`
     nll_over_n: float  # NLL/N of `field`
     r_tilde: float  # scale-free roughness of `field`
     variance_collapsed: bool
-    spectral_hf_ratio: float
-    spectral_slope: float
-    spectral_monotone_fraction: float
-    spectral_collapsed: bool
+    spectral_hf_ratio: float  # None for flat fields
+    spectral_slope: float  # None for flat fields
+    spectral_monotone_fraction: float  # None for flat fields
+    spectral_collapsed: bool  # None for flat fields
     restart_energies: np.ndarray  # J_beta reached by each restart
     restart_spread: float  # max - min over restart energies (energy units)
     restart_field_spread: float  # max over cells of (max - min) restart field value
     n_restarts: int
+    restart_n_sweeps: np.ndarray = None  # ICM sweeps executed per restart
 
 
 def _unary_best_assignment(extraction):
@@ -231,11 +259,12 @@ def solve_value_mrf(
     pi = np.asarray(pi, dtype=float)
     mu = np.asarray(mu, dtype=float)
     sigma = np.asarray(sigma, dtype=float)
-    height, width = extraction.height, extraction.width
-    n = height * width
+    n = extraction.mode_values.shape[0]
 
     if edges is None:
-        edges = grid_edges_8(height, width)
+        if extraction.height is None:
+            raise ValueError("flat extractions require explicit edges")
+        edges = grid_edges_8(extraction.height, extraction.width)
     edges = np.asarray(edges, dtype=np.int64)
     if n_edges is None:
         n_edges = len(edges)
@@ -250,15 +279,18 @@ def solve_value_mrf(
 
     warm_best = _unary_best_assignment(extraction)
 
+    field_shape = extraction.field_shape
+
     fields = []
     assignments = []
     energies = []
+    sweep_counts = []
     for r in range(n_restarts):
         if r == 0:
             warm = warm_best
         else:
             warm = np.array([rng.integers(0, mode_counts[i]) for i in range(n)], dtype=np.int64)
-        a = _value_space_icm(
+        a, n_sweeps = _value_space_icm(
             mode_values,
             valid_mask,
             mode_unary,
@@ -266,19 +298,29 @@ def solve_value_mrf(
             warm,
             pairwise_weight=pairwise_weight,
             max_sweeps=max_sweeps,
+            return_n_sweeps=True,
         )
         assignments.append(a)
-        fields.append(mode_values[rows, a].reshape(height, width))
+        fields.append(mode_values[rows, a].reshape(field_shape))
         energies.append(value_mrf_energy(a, extraction, edges, beta))
+        sweep_counts.append(n_sweeps)
 
-    fields = np.stack(fields)  # [R, H, W]
+    fields = np.stack(fields)  # [R, H, W] or [R, N]
     energies = np.asarray(energies)
     best = int(np.argmin(energies))
     best_field = fields[best]
-    best_assignment = assignments[best].reshape(height, width)
+    best_assignment = assignments[best].reshape(field_shape)
 
     r_tilde, collapsed = scale_free_roughness(best_field, edges)
-    spectral = spectral_roughness(best_field)
+    if best_field.ndim == 2:
+        spectral = spectral_roughness(best_field)
+    else:
+        spectral = {
+            "spectral_hf_ratio": None,
+            "spectral_slope": None,
+            "spectral_monotone_fraction": None,
+            "spectral_collapsed": None,
+        }
     field_spread = float(np.max(fields.max(axis=0) - fields.min(axis=0)))
 
     return ValueMRFResult(
@@ -296,6 +338,7 @@ def solve_value_mrf(
         restart_spread=float(energies.max() - energies.min()),
         restart_field_spread=field_spread,
         n_restarts=n_restarts,
+        restart_n_sweeps=np.asarray(sweep_counts, dtype=np.int64),
     )
 
 
@@ -308,7 +351,6 @@ def delta_nll_to_best_mode(
     valid_mask,
     *,
     thresholds=DRIFT_THRESHOLDS_V1,
-    density_floor=1e-300,
 ):
     """Per-cell drift of a field off its best extracted mode (non-smearing probe).
 
@@ -322,29 +364,30 @@ def delta_nll_to_best_mode(
     Method 1, `smoothed_map`, and the Method 5 ablation can all be read against
     Stage C's reference modes.
 
+    Shape-agnostic (`[H, W]` or flat `[N]` fields); densities are routed through
+    the log-space `gmm_log_pdf`, so far-off-mode values cannot underflow.
     Returns mean / p95 / max over cells plus the fraction of cells exceeding each
-    drift threshold. The default thresholds (0.125, 0.5) are **v1 working**
-    values, not locked Phase-3 thresholds — see `DRIFT_THRESHOLDS_V1`.
+    drift threshold; `per_cell` keeps the field's shape. The default thresholds
+    (0.125, 0.5) are **v1 working** values, not locked Phase-3 thresholds — see
+    `DRIFT_THRESHOLDS_V1`.
     """
 
     field = np.asarray(field, dtype=float)
     pi = np.asarray(pi, dtype=float)
     mu = np.asarray(mu, dtype=float)
     sigma = np.asarray(sigma, dtype=float)
-    height, width, k = mu.shape
-    n = height * width
+    k = mu.shape[-1]
+    n = mu.size // k
 
     mode_values = np.asarray(mode_values, dtype=float)
     valid_mask = np.asarray(valid_mask, dtype=bool)
 
-    value_density = mixture_pdf(field, pi, mu, sigma).reshape(n)
-    value_nll = -np.log(np.maximum(value_density, density_floor))
+    value_nll = -gmm_log_pdf(field, pi, mu, sigma).reshape(n)
 
     pi_f = pi.reshape(n, 1, k)
     mu_f = mu.reshape(n, 1, k)
     sigma_f = sigma.reshape(n, 1, k)
-    mode_density = mixture_pdf(mode_values, pi_f, mu_f, sigma_f)  # [N, Kmax]
-    mode_nll = -np.log(np.maximum(mode_density, density_floor))
+    mode_nll = -gmm_log_pdf(mode_values, pi_f, mu_f, sigma_f)  # [N, Kmax]
     mode_nll = np.where(valid_mask, mode_nll, np.inf)
     best_mode_nll = np.min(mode_nll, axis=1)  # [N]
 
@@ -356,7 +399,7 @@ def delta_nll_to_best_mode(
         "max": float(np.max(delta)),
         "thresholds": tuple(float(t) for t in thresholds),
         "frac_over": frac_over,
-        "per_cell": delta.reshape(height, width),
+        "per_cell": delta.reshape(field.shape),
     }
 
 
@@ -378,6 +421,7 @@ class BetaSweepPoint:
     delta_to_mode: dict = _field(repr=False)
     field: np.ndarray = _field(repr=False)
     assignment: np.ndarray = _field(repr=False)
+    restart_n_sweeps: np.ndarray = None  # ICM sweeps executed per restart
 
 
 def beta_sweep(
@@ -391,6 +435,7 @@ def beta_sweep(
     extraction=None,
     max_sweeps=50,
     thresholds=DRIFT_THRESHOLDS_V1,
+    edges=None,
 ):
     """Produce the `NLL/N` vs `R̃` curve over a beta grid (mode artifacts reused).
 
@@ -401,14 +446,19 @@ def beta_sweep(
     point also carries its `delta_nll_to_best_mode` summary. Returns a list of
     `BetaSweepPoint`. Use a denser grid than Method 1: the field is
     piecewise-constant in beta, so neighbouring betas can repeat the same field.
+    Toy `[H, W, K]` inputs keep the `E_8` default; flat `[N, K]` inputs require
+    explicit `edges`.
     """
 
     pi = np.asarray(pi, dtype=float)
     mu = np.asarray(mu, dtype=float)
     sigma = np.asarray(sigma, dtype=float)
-    height, width, _ = mu.shape
 
-    edges = grid_edges_8(height, width)
+    if edges is None:
+        if mu.ndim != 3:
+            raise ValueError("flat [N, K] inputs require explicit edges")
+        height, width, _ = mu.shape
+        edges = grid_edges_8(height, width)
     n_edges = len(edges)
     if extraction is None:
         extraction = extract_gmm_modes(pi, mu, sigma)
@@ -453,6 +503,7 @@ def beta_sweep(
                 delta_to_mode=delta,
                 field=res.field,
                 assignment=res.assignment,
+                restart_n_sweeps=res.restart_n_sweeps,
             )
         )
     return points

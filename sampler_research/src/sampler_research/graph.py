@@ -61,15 +61,91 @@ def graph_laplacian(height, width, edges=None, weights=None):
     return laplacian
 
 
+EARTH_RADIUS_KM = 6371.0
+
+
+def _unit_sphere_xyz(latlons_deg):
+    latlons = np.asarray(latlons_deg, dtype=float)
+    if latlons.ndim != 2 or latlons.shape[1] != 2:
+        raise ValueError("latlons_deg must have shape [N, 2]")
+    lat = np.radians(latlons[:, 0])
+    lon = np.radians(latlons[:, 1])
+    return np.stack(
+        [np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)], axis=1
+    )
+
+
+def knn_sphere_edges(latlons_deg, k=8):
+    """k-NN neighbour edges on the unit sphere (phase_4_plan §2).
+
+    Embeds lat/lon as 3D unit vectors (chord distance is monotone in
+    great-circle distance, so 3D k-NN == spherical k-NN; longitude wrap and the
+    pole rings need no special casing). Symmetrised as the union
+    (`i in knn(j)` OR `j in knn(i)`), deduplicated, returned as `[E, 2]` int64
+    with `i < j`. `k=8` mirrors the toy `E_8` default and gives
+    `|E| = 162,406` at N = 40,320 (phase_4_data_audit §5).
+    """
+
+    from scipy.spatial import cKDTree
+
+    xyz = _unit_sphere_xyz(latlons_deg)
+    tree = cKDTree(xyz)
+    _, idx = tree.query(xyz, k=k + 1)
+    rows = np.repeat(np.arange(xyz.shape[0], dtype=np.int64), k)
+    cols = idx[:, 1:].reshape(-1).astype(np.int64)
+    keep = rows != cols
+    rows, cols = rows[keep], cols[keep]
+    pairs = np.stack([np.minimum(rows, cols), np.maximum(rows, cols)], axis=1)
+    return np.unique(pairs, axis=0)
+
+
+def edge_arc_km(latlons_deg, edges):
+    """Great-circle length of each edge in km (chord -> arc on the unit sphere)."""
+
+    xyz = _unit_sphere_xyz(latlons_deg)
+    edges = np.asarray(edges, dtype=np.int64)
+    chord = np.linalg.norm(xyz[edges[:, 0]] - xyz[edges[:, 1]], axis=1)
+    return 2.0 * np.arcsin(np.clip(chord / 2.0, 0.0, 1.0)) * EARTH_RADIUS_KM
+
+
+def sparse_laplacian(n_cells, edges, weights=None):
+    """scipy.sparse CSR graph Laplacian; default unit weights (toy convention).
+
+    The dense N x N Laplacian is forbidden at real-grid size (13 GB at
+    N = 40,320 — phase_4_data_audit §9); this is the flat-path replacement for
+    `graph_laplacian`. A distance-decay weighting stays a declared ablation,
+    not the default.
+    """
+
+    from scipy import sparse
+
+    edges = np.asarray(edges, dtype=np.int64)
+    if weights is None:
+        weights = np.ones(len(edges), dtype=float)
+    weights = np.asarray(weights, dtype=float)
+    if weights.shape != (len(edges),):
+        raise ValueError("weights must have one entry per edge")
+
+    i, j = edges[:, 0], edges[:, 1]
+    rows = np.concatenate([i, j, i, j])
+    cols = np.concatenate([j, i, i, j])
+    vals = np.concatenate([-weights, -weights, weights, weights])
+    return sparse.csr_array((vals, (rows, cols)), shape=(n_cells, n_cells))
+
+
 def _as_flat_field(x):
     return np.asarray(x, dtype=float).reshape(-1)
 
 
 def roughness_sum(x, laplacian):
-    """Raw smoothness penalty `S_sum(x) = x^T L x = sum_(i,j) w_ij (x_i - x_j)^2`."""
+    """Raw smoothness penalty `S_sum(x) = x^T L x = sum_(i,j) w_ij (x_i - x_j)^2`.
+
+    Evaluated as `x @ (L @ x)` so dense arrays and sparse CSR operators share
+    one code path.
+    """
 
     flat = _as_flat_field(x)
-    return float(flat @ laplacian @ flat)
+    return float(flat @ (laplacian @ flat))
 
 
 def roughness_edge_mean(x, edges):

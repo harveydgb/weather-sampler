@@ -13,7 +13,7 @@ on the per-cell label index (constraint C5).
 
 import numpy as np
 
-from sampler_research.gmm import mixture_mean, mixture_pdf, normal_pdf, sample_iid_gmm
+from sampler_research.gmm import gmm_log_pdf, mixture_mean, normal_pdf, sample_iid_gmm
 from sampler_research.graph import (
     graph_laplacian,
     grid_edges_8,
@@ -26,11 +26,13 @@ from sampler_research.spectral import spectral_roughness
 def gmm_nll_per_cell(field, pi, mu, sigma):
     """Per-location GMM negative log-likelihood `-log p_i(x_i)`.
 
-    `field` has shape `[H, W]`; `pi`, `mu`, `sigma` have shape `[H, W, K]`.
+    Shape-agnostic: `field` is `[H, W]` or `[N]` with the mixture axis last on
+    `pi`/`mu`/`sigma`. Computed in log space (`-gmm_log_pdf`) so smeared fields
+    at separated-mode cells cannot underflow; equals the previous linear-space
+    value to 1e-10 on sane toy fields (phase_4_plan §1).
     """
 
-    density = mixture_pdf(field, pi, mu, sigma)
-    return -np.log(density)
+    return -gmm_log_pdf(field, pi, mu, sigma)
 
 
 def gmm_nll_over_n(field, pi, mu, sigma):
@@ -84,17 +86,22 @@ def variance_scaled_baseline(pi, mu, sigma, alpha, rng=None):
     return sample, component_index
 
 
-def smoothed_map_baseline(pi, mu, sigma, step=0.1, n_iters=10):
-    """Smoothed-MAP critical baseline: per-cell mode field blurred over `E_8`.
+def smoothed_map_baseline(pi, mu, sigma, step=0.1, n_iters=10, laplacian=None):
+    """Smoothed-MAP critical baseline: per-cell mode field blurred over the graph.
 
-    Takes the likelihood-only mode field and applies a graph-Laplacian blur on
-    the default 8-neighbour grid. This is the baseline a real coupling method
-    must beat on the orthogonal label-coherence axis.
+    Takes the likelihood-only mode field and applies a graph-Laplacian blur.
+    2D `[H, W, K]` input keeps the toy default (dense `E_8` Laplacian built
+    here); flat `[N, K]` input must pass the (sparse) `laplacian` operator.
+    This is the baseline a real coupling method must beat on the orthogonal
+    label-coherence axis.
     """
 
     field, _ = mode_field(pi, mu, sigma)
-    height, width = field.shape
-    laplacian = graph_laplacian(height, width)
+    if laplacian is None:
+        if field.ndim != 2:
+            raise ValueError("flat [N, K] inputs require an explicit (sparse) laplacian")
+        height, width = field.shape
+        laplacian = graph_laplacian(height, width)
     return laplacian_blur(field, laplacian, step=step, n_iters=n_iters)
 
 
@@ -120,6 +127,7 @@ def _value_space_icm(
     *,
     pairwise_weight=1.0,
     max_sweeps=50,
+    return_n_sweeps=False,
 ):
     """Row-major ICM over per-cell value candidates (shared `a*` / Method 4 core).
 
@@ -135,7 +143,9 @@ def _value_space_icm(
     neighbours) cost, ties broken by smallest candidate value. Padded slots are
     excluded via `valid_mask` (their local cost is forced to `+inf`), so they are
     never selected as long as each cell has at least one valid candidate.
-    Returns the final assignment `[N]`.
+    Returns the final assignment `[N]`; with `return_n_sweeps=True` (opt-in so
+    existing callers keep the bare return) it returns
+    `(assignment, n_sweeps_executed)` instead.
 
     The default `pairwise_weight=1.0` with a zero `unary` and an all-true
     `valid_mask` reproduces the `a*` baseline bit-for-bit; Method 4 passes
@@ -155,7 +165,9 @@ def _value_space_icm(
         neighbours[j].append(i)
 
     assignment = np.asarray(warm_start, dtype=np.int64).copy()
+    n_sweeps = 0
     for _ in range(max_sweeps):
+        n_sweeps += 1
         changed = False
         for i in range(n):
             if not neighbours[i]:
@@ -173,6 +185,8 @@ def _value_space_icm(
                 changed = True
         if not changed:
             break
+    if return_n_sweeps:
+        return assignment, n_sweeps
     return assignment
 
 
@@ -225,21 +239,36 @@ def score_field(field, pi, mu, sigma, edges=None):
 
     The primary scores are `NLL/N` and scale-free `R̃` (§3.1a). Power-spectrum
     scores are secondary necessary-condition diagnostics for high-frequency
-    roughness, not standalone skill metrics.
+    roughness, not standalone skill metrics. Toy `[H, W, K]` parameters keep
+    the 1D-to-2D reshape and `E_8` default; true flat `[N, K]` parameters
+    require `edges` and report the planar-FFT spectral keys as NaN placeholders
+    (the real-grid coherence diagnostic is the sampled spherical variogram).
     """
 
     field_grid = np.asarray(field, dtype=float)
-    if field_grid.ndim == 1:
-        field_grid = field_grid.reshape(np.asarray(pi).shape[:2])
+    params_2d = np.asarray(pi).ndim == 3
+    if params_2d:
+        if field_grid.ndim == 1:
+            field_grid = field_grid.reshape(np.asarray(pi).shape[:2])
+        if edges is None:
+            height, width = field_grid.shape
+            edges = grid_edges_8(height, width)
+        spectral = spectral_roughness(field_grid)
+    else:
+        if edges is None:
+            raise ValueError("flat [N, K] inputs require explicit edges")
+        spectral = {
+            "spectral_hf_ratio": np.nan,
+            "spectral_slope": np.nan,
+            "spectral_monotone_fraction": np.nan,
+            "spectral_collapsed": False,
+        }
 
-    if edges is None:
-        height, width = field_grid.shape
-        edges = grid_edges_8(height, width)
     nll = gmm_nll_over_n(field_grid, pi, mu, sigma)
     r_tilde, collapsed = scale_free_roughness(field_grid, edges)
     return {
         "nll_over_n": nll,
         "r_tilde": r_tilde,
         "variance_collapsed": collapsed,
-        **spectral_roughness(field_grid),
+        **spectral,
     }

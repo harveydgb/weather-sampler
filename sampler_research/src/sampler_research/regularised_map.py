@@ -117,6 +117,22 @@ def huber_penalty_gradient(field_grid, edges, delta):
     return (grad / len(edges)).reshape(field_grid.shape)
 
 
+def _default_grid_edges(field_grid):
+    """Toy `E_8` edge default; flat `[N]` fields must pass `edges` explicitly."""
+
+    if field_grid.ndim != 2:
+        raise ValueError("flat fields require explicit edges (no E_8 default)")
+    return grid_edges_8(*field_grid.shape)
+
+
+def _default_grid_laplacian(field_grid):
+    """Toy dense-`E_8` Laplacian default; flat fields must pass a sparse one."""
+
+    if field_grid.ndim != 2:
+        raise ValueError("flat fields require an explicit (sparse) laplacian")
+    return graph_laplacian(*field_grid.shape)
+
+
 def objective(
     field_grid,
     pi,
@@ -141,18 +157,17 @@ def objective(
     """
 
     field_grid = np.asarray(field_grid, dtype=float)
-    height, width = field_grid.shape
     if penalty == "huber":
         if edges is None:
-            edges = grid_edges_8(height, width)
+            edges = _default_grid_edges(field_grid)
         nll_over_n = gmm_nll_over_n(field_grid, pi, mu, sigma)
         return nll_over_n + lam * huber_penalty_edge_mean(field_grid, edges, delta)
     if penalty != "quadratic":
         raise ValueError(f"unknown penalty {penalty!r}; expected 'quadratic' or 'huber'")
     if laplacian is None:
-        laplacian = graph_laplacian(height, width)
+        laplacian = _default_grid_laplacian(field_grid)
     if n_edges is None:
-        n_edges = len(grid_edges_8(height, width))
+        n_edges = len(_default_grid_edges(field_grid))
 
     nll_over_n = gmm_nll_over_n(field_grid, pi, mu, sigma)
     smooth = roughness_sum(field_grid, laplacian) / n_edges
@@ -181,23 +196,22 @@ def objective_gradient(
     """
 
     field_grid = np.asarray(field_grid, dtype=float)
-    height, width = field_grid.shape
-    n = height * width
+    n = field_grid.size
     if penalty == "huber":
         if edges is None:
-            edges = grid_edges_8(height, width)
+            edges = _default_grid_edges(field_grid)
         grad_nll = nll_gradient(field_grid, pi, mu, sigma) / n
         return grad_nll + lam * huber_penalty_gradient(field_grid, edges, delta)
     if penalty != "quadratic":
         raise ValueError(f"unknown penalty {penalty!r}; expected 'quadratic' or 'huber'")
     if laplacian is None:
-        laplacian = graph_laplacian(height, width)
+        laplacian = _default_grid_laplacian(field_grid)
     if n_edges is None:
-        n_edges = len(grid_edges_8(height, width))
+        n_edges = len(_default_grid_edges(field_grid))
 
     grad_nll = nll_gradient(field_grid, pi, mu, sigma) / n
     smooth_grad_flat = 2.0 * (laplacian @ field_grid.reshape(-1)) / n_edges
-    grad_smooth = smooth_grad_flat.reshape(height, width)
+    grad_smooth = smooth_grad_flat.reshape(field_grid.shape)
     return grad_nll + lam * grad_smooth
 
 
@@ -205,19 +219,20 @@ def objective_gradient(
 class OptimResult:
     """Outcome of one warm-started, multi-restart minimisation at a fixed lambda."""
 
-    field: np.ndarray  # lowest-energy field found, [H, W]
+    field: np.ndarray  # lowest-energy field found, [H, W] or flat [N]
     energy: float  # J_lambda of `field`
     nll_over_n: float  # NLL/N of `field`
     r_tilde: float  # scale-free roughness of `field`
     variance_collapsed: bool
-    spectral_hf_ratio: float  # secondary high-frequency power diagnostic
-    spectral_slope: float  # log-log radial-spectrum slope (shape check)
-    spectral_monotone_fraction: float  # fraction of decreasing adjacent bins
-    spectral_collapsed: bool
+    spectral_hf_ratio: float  # secondary high-frequency power diagnostic; None for flat fields
+    spectral_slope: float  # log-log radial-spectrum slope (shape check); None for flat fields
+    spectral_monotone_fraction: float  # fraction of decreasing adjacent bins; None for flat fields
+    spectral_collapsed: bool  # None for flat fields
     restart_energies: np.ndarray  # J_lambda reached by each restart
     restart_spread: float  # max - min over restart energies (energy units)
     restart_field_spread: float  # max over cells of (max - min) restart field value
     n_restarts: int
+    restart_nll_over_n: np.ndarray = None  # per-restart NLL/N (robustness row)
 
 
 def _adam_descent(x0, grad_fn, n_steps, lr, betas=(0.9, 0.999), eps=1e-8):
@@ -263,17 +278,31 @@ def minimise_at_lambda(
     (worst per-cell value range across restarts) are exposed as stability outputs.
     `penalty`/`delta` select the smoothness term (see `objective`); the default
     `"quadratic"` is the literal pre-ablation code path.
+
+    Toy `[H, W, K]` parameters keep the `E_8` defaults (bit-identical path);
+    flat `[N, K]` parameters require explicit `edges` and a sparse `laplacian`,
+    and the spectral fields of the result are `None` (planar-FFT diagnostics
+    are gated to 2D lattices). `restart_scale` stays 1.0 for the toy; use
+    ~median sigma = 0.15 on the real data (the toy value would jump ~7 sigma).
     """
 
     pi = np.asarray(pi, dtype=float)
     mu = np.asarray(mu, dtype=float)
     sigma = np.asarray(sigma, dtype=float)
-    height, width, _ = mu.shape
 
-    if laplacian is None:
-        laplacian = graph_laplacian(height, width)
-    if edges is None:
-        edges = grid_edges_8(height, width)
+    if mu.ndim == 3:
+        height, width, _ = mu.shape
+        if laplacian is None:
+            laplacian = graph_laplacian(height, width)
+        if edges is None:
+            edges = grid_edges_8(height, width)
+    elif mu.ndim == 2:
+        if laplacian is None or edges is None:
+            raise ValueError(
+                "flat [N, K] inputs require explicit edges and a (sparse) laplacian"
+            )
+    else:
+        raise ValueError("mu must have shape [H, W, K] or [N, K]")
     if n_edges is None:
         n_edges = len(edges)
     rng = rng or np.random.default_rng()
@@ -315,15 +344,24 @@ def minimise_at_lambda(
             )
         )
 
-    fields = np.stack(fields)  # [R, H, W]
+    fields = np.stack(fields)  # [R, H, W] or [R, N]
     energies = np.asarray(energies)
     best = int(np.argmin(energies))
     best_field = fields[best]
 
     r_tilde, collapsed = scale_free_roughness(best_field, edges)
-    spectral = spectral_roughness(best_field)
+    if best_field.ndim == 2:
+        spectral = spectral_roughness(best_field)
+    else:
+        spectral = {
+            "spectral_hf_ratio": None,
+            "spectral_slope": None,
+            "spectral_monotone_fraction": None,
+            "spectral_collapsed": None,
+        }
     # Worst-case disagreement between restart fields, per cell, then max over cells.
     field_spread = float(np.max(fields.max(axis=0) - fields.min(axis=0)))
+    restart_nll = np.asarray([gmm_nll_over_n(f, pi, mu, sigma) for f in fields])
 
     return OptimResult(
         field=best_field,
@@ -339,6 +377,7 @@ def minimise_at_lambda(
         restart_spread=float(energies.max() - energies.min()),
         restart_field_spread=field_spread,
         n_restarts=n_restarts,
+        restart_nll_over_n=restart_nll,
     )
 
 
@@ -373,6 +412,8 @@ def lambda_sweep(
     seed=0,
     penalty="quadratic",
     delta=0.05,
+    edges=None,
+    laplacian=None,
 ):
     """Produce the Pareto curve (NLL/N vs scale-free R̃) over a lambda grid.
 
@@ -380,16 +421,22 @@ def lambda_sweep(
     (seed offset by the lambda index) so the sweep is reproducible and order
     independent. Returns a list of `LambdaSweepPoint`, one per lambda.
     `penalty`/`delta` select the smoothness term (see `objective`); each point's
-    `energy` is then J under that penalty.
+    `energy` is then J under that penalty. Toy `[H, W, K]` inputs keep the `E_8`
+    defaults; flat `[N, K]` inputs require explicit `edges` + sparse `laplacian`.
     """
 
     pi = np.asarray(pi, dtype=float)
     mu = np.asarray(mu, dtype=float)
     sigma = np.asarray(sigma, dtype=float)
-    height, width, _ = mu.shape
 
-    laplacian = graph_laplacian(height, width)
-    edges = grid_edges_8(height, width)
+    if mu.ndim == 3:
+        height, width, _ = mu.shape
+        if laplacian is None:
+            laplacian = graph_laplacian(height, width)
+        if edges is None:
+            edges = grid_edges_8(height, width)
+    elif edges is None or laplacian is None:
+        raise ValueError("flat [N, K] inputs require explicit edges and a (sparse) laplacian")
     n_edges = len(edges)
 
     points = []

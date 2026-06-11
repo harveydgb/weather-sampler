@@ -1,0 +1,595 @@
+"""Phase 4 — anchors, Method 1 sweep, lambda*, Method 4, and stratified scores
+on the real O96 GMM output (phase_4_plan.md S5-S6; data facts in
+phase_4_data_audit.md).
+
+Run from the repo root with the local (numpy/scipy-only) venv:
+
+    .venv/bin/python scripts/run_phase4_real.py                  # all stages
+    .venv/bin/python scripts/run_phase4_real.py --stages m1      # one stage
+    .venv/bin/python scripts/run_phase4_real.py --lambda-star    # S6 rule + sensitivity
+    .venv/bin/python scripts/run_phase4_real.py --quick --out-dir /tmp/p4smoke
+
+Stages (separately invokable; later stages load earlier artifacts):
+  graph   -> masks.npz (stratum masks + k-NN edges + edge_arc_km)
+  anchors -> anchors.npz (MAP / mixture mean / iid seeds / smoothed-MAP)
+  modes   -> modes.npz (mean-shift mode extraction, heteroscedastic update)
+  m1      -> method1_sweep.npz (bracket-guarded lambda sweep)
+  m4      -> method4_sweep.npz (value-space MRF beta sweep; SHOULD)
+  scores  -> delta_per_cell.npz + scores.csv/.md + variograms.npz + timings.json
+
+`--lambda-star` applies the S6 roughness-matching rule to the persisted sweep
+(target = smoothed-MAP n_iters=10 R-tilde), extends the sweep decade-by-decade
+if unbracketed, and persists lambda_star.json + method1_sensitivity.npz.
+
+The Method 1 grid {0, 0.5, 2, 8, 30, 100, 300, 1000} is the updated
+phase_4_plan grid, pre-verified (11 Jun review probe) to bracket smoothed-MAP's
+R-tilde ~ 0.003; the 3-point coarse probe {2, 20, 200} + abort converts that
+calibration into a permanent guard.
+"""
+
+import argparse
+import csv
+import json
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+
+from sampler_research.baselines import (
+    gmm_nll_per_cell,
+    mixture_mean_field,
+    mode_field,
+    smoothed_map_baseline,
+)
+from sampler_research.diagnostics import sampled_spherical_variogram
+from sampler_research.gmm import sample_iid_gmm
+from sampler_research.graph import (
+    edge_arc_km,
+    knn_sphere_edges,
+    scale_free_roughness,
+    sparse_laplacian,
+)
+from sampler_research.io import load_real_marginal
+from sampler_research.method4_mrf import (
+    ModeExtraction,
+    beta_sweep,
+    delta_nll_to_best_mode,
+    extract_gmm_modes,
+)
+from sampler_research.phase4_eval import (
+    practically_bimodal_mask,
+    select_lambda_star,
+    stratified_scores,
+    stratum_masks,
+    wrap_seam_ratio,
+)
+from sampler_research.regularised_map import minimise_at_lambda, objective
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DATA_NPZ = REPO_ROOT / "outputs" / "data" / "phase_4_real_2t.npz"
+RUN_DIR = REPO_ROOT / "outputs" / "runs" / "phase_4_real"
+
+STAGES = ("graph", "anchors", "modes", "m1", "m4", "scores")
+
+# Updated phase_4_plan S5 grid (log-spaced through the verified target region).
+LAMBDA_GRID = (0.0, 0.5, 2.0, 8.0, 30.0, 100.0, 300.0, 1000.0)
+PROBE_LAMBDAS = (2.0, 20.0, 200.0)
+IID_SEEDS = (0, 1, 2)
+SMOOTH_N_ITERS = (5, 10, 20)
+SMOOTH_STEP = 0.1
+N_RESTARTS = 4
+N_STEPS = 400
+LR = 0.05
+RESTART_SCALE = 0.15  # ~ median real sigma; the toy default 1.0 would jump ~7 sigma
+BETAS = tuple(np.logspace(-2.0, 0.0, 8))
+M4_RESTARTS = 2
+M4_MAX_SWEEPS = 30
+VARIOGRAM_PAIRS = 60_000
+TARGET_ANCHOR = "smoothed_map_n10"
+
+
+def _update_timings(out_dir, **updates):
+    path = out_dir / "timings.json"
+    timings = json.loads(path.read_text()) if path.exists() else {}
+    timings.update({k: round(v, 3) for k, v in updates.items()})
+    path.write_text(json.dumps(timings, indent=2) + "\n")
+
+
+def stage_graph(data, out_dir, args):
+    t0 = time.perf_counter()
+    edges = knn_sphere_edges(data["latlons"], k=8)
+    arc = edge_arc_km(data["latlons"], edges)
+    elapsed = time.perf_counter() - t0
+    print(f"[graph] |E| = {len(edges)} (audit S5 expects 162,406 at k=8)")
+    print(
+        f"[graph] edge arc km min/median/max = "
+        f"{arc.min():.1f}/{np.median(arc):.1f}/{arc.max():.1f}"
+    )
+    masks = stratum_masks(data["pi"], data["mu"], data["sigma"], data["latlons"])
+    masks["bimodal_1sigma"] = practically_bimodal_mask(
+        data["pi"], data["mu"], data["sigma"], min_separation=1.0
+    )
+    for name, mask in masks.items():
+        print(f"[graph] stratum {name}: {int(mask.sum())} cells")
+    np.savez(out_dir / "masks.npz", edges=edges, edge_arc_km=arc, **masks)
+    _update_timings(out_dir, knn_graph_s=elapsed)
+    print(f"[graph] wrote {out_dir / 'masks.npz'}")
+
+
+def _load_masks(out_dir):
+    with np.load(out_dir / "masks.npz") as f:
+        return {k: f[k] for k in f.files}
+
+
+def stage_anchors(data, out_dir, args):
+    pi, mu, sigma = data["pi"], data["mu"], data["sigma"]
+    masks = _load_masks(out_dir)
+    edges = masks["edges"]
+    lap = sparse_laplacian(pi.shape[0], edges)
+
+    t0 = time.perf_counter()
+    fields = {}
+    fields["mode_map"], _ = mode_field(pi, mu, sigma)
+    fields["mixture_mean"] = mixture_mean_field(pi, mu)
+    for seed in IID_SEEDS[: 1 if args.quick else len(IID_SEEDS)]:
+        sample, _ = sample_iid_gmm(pi, mu, sigma, np.random.default_rng(seed))
+        fields[f"iid_seed{seed}"] = sample
+    for n_iters in SMOOTH_N_ITERS:
+        fields[f"smoothed_map_n{n_iters}"] = smoothed_map_baseline(
+            pi, mu, sigma, step=SMOOTH_STEP, n_iters=n_iters, laplacian=lap
+        )
+    elapsed = time.perf_counter() - t0
+
+    # Anchor-table continuity check (MUST, phase_4_plan S5): with near-one-hot
+    # pi the mixture mean nearly coincides with the MAP field -- a regime
+    # signature, not an over-smooth anchor.
+    nll_map = float(np.mean(gmm_nll_per_cell(fields["mode_map"], pi, mu, sigma)))
+    nll_mean = float(np.mean(gmm_nll_per_cell(fields["mixture_mean"], pi, mu, sigma)))
+    gap = abs(nll_mean - nll_map)
+    print(
+        f"[anchors] NLL/N(MAP) = {nll_map:.4f}, NLL/N(mixture_mean) = {nll_mean:.4f}, "
+        f"|gap| = {gap:.4f} (near-one-hot signature; must be < 0.02)"
+    )
+    assert gap < 0.02, "anchor continuity check failed: |NLL/N(mean) - NLL/N(MAP)| >= 0.02"
+
+    np.savez(out_dir / "anchors.npz", **fields)
+    _update_timings(out_dir, anchors_s=elapsed)
+    print(f"[anchors] wrote {out_dir / 'anchors.npz'} ({len(fields)} fields)")
+
+
+def stage_modes(data, out_dir, args):
+    pi, mu, sigma = data["pi"], data["mu"], data["sigma"]
+    t0 = time.perf_counter()
+    ext = extract_gmm_modes(pi, mu, sigma)
+    elapsed = time.perf_counter() - t0
+    counts = np.bincount(ext.mode_counts, minlength=5)
+    print(f"[modes] extraction {elapsed:.1f} s; mode-count census 1/2/3/4 = {counts[1:].tolist()}")
+    np.savez(
+        out_dir / "modes.npz",
+        mode_values=ext.mode_values,
+        valid_mask=ext.valid_mask,
+        mode_unary=ext.mode_unary,
+        mode_counts=ext.mode_counts,
+    )
+    _update_timings(out_dir, mode_extraction_s=elapsed)
+    print(f"[modes] wrote {out_dir / 'modes.npz'}")
+
+
+def _load_extraction(out_dir):
+    with np.load(out_dir / "modes.npz") as f:
+        return ModeExtraction(
+            mode_values=f["mode_values"],
+            valid_mask=f["valid_mask"],
+            mode_unary=f["mode_unary"],
+            mode_counts=f["mode_counts"],
+        )
+
+
+def _solve_lambda(pi, mu, sigma, lam, edges, lap, seed, n_steps, n_restarts):
+    """Sanity-guarded Method 1 solve: halve lr once on divergence, never more."""
+
+    warm, _ = mode_field(pi, mu, sigma)
+    n_edges = len(edges)
+    warm_energy = objective(warm, pi, mu, sigma, lam, laplacian=lap, n_edges=n_edges)
+    lr = LR
+    for attempt in range(2):
+        res = minimise_at_lambda(
+            pi, mu, sigma, lam,
+            n_restarts=n_restarts, n_steps=n_steps, lr=lr,
+            restart_scale=RESTART_SCALE, rng=np.random.default_rng(seed),
+            laplacian=lap, edges=edges,
+        )
+        sane = bool(np.isfinite(res.energy) and res.energy <= warm_energy + 1e-9)
+        if sane:
+            break
+        if attempt == 0:
+            print(f"[m1] lambda={lam:g}: energy above warm start; halving lr once")
+            lr = LR / 2.0
+    return res, sane, lr
+
+
+def _target_r_tilde(out_dir, edges):
+    with np.load(out_dir / "anchors.npz") as f:
+        target_field = f[TARGET_ANCHOR]
+    target, collapsed = scale_free_roughness(target_field, edges)
+    if collapsed:
+        sys.exit(f"[m1] {TARGET_ANCHOR} is variance-collapsed: lambda* target undefined (hard stop)")
+    return target
+
+
+def stage_m1(data, out_dir, args):
+    pi, mu, sigma = data["pi"], data["mu"], data["sigma"]
+    masks = _load_masks(out_dir)
+    edges = masks["edges"]
+    lap = sparse_laplacian(pi.shape[0], edges)
+    n_steps = 50 if args.quick else N_STEPS
+    n_restarts = 2 if args.quick else N_RESTARTS
+
+    target = _target_r_tilde(out_dir, edges)
+    with np.load(out_dir / "anchors.npz") as f:
+        print("[m1] anchor R-tilde:")
+        for name in f.files:
+            r, c = scale_free_roughness(f[name], edges)
+            print(f"[m1]   {name}: R~ = {r:.5f}{' (collapsed)' if c else ''}")
+
+    # Bracket-check guard (phase_4_plan S5): coarse probe, abort if the
+    # production grid cannot bracket the smoothed-MAP target.
+    probe_r = []
+    for i, lam in enumerate(PROBE_LAMBDAS):
+        res, _, _ = _solve_lambda(pi, mu, sigma, lam, edges, lap, 1000 + i,
+                                  n_steps=max(50, n_steps // 2), n_restarts=2)
+        probe_r.append(res.r_tilde)
+        print(f"[m1] probe lambda={lam:g}: NLL/N={res.nll_over_n:.4f} R~={res.r_tilde:.5f}")
+    bracket_ok = min(probe_r) <= target <= max(probe_r)
+    print(f"[m1] target R~({TARGET_ANCHOR}) = {target:.5f}; probe bracket ok = {bracket_ok}")
+    if not bracket_ok and not args.quick:
+        sys.exit(
+            "[m1] BRACKET GUARD: production grid does not bracket the smoothed-MAP "
+            f"R~ target {target:.5f} (probe range {min(probe_r):.5f}..{max(probe_r):.5f}); aborting"
+        )
+
+    lambdas = (0.0, 0.5) if args.quick else LAMBDA_GRID
+    rows = {key: [] for key in (
+        "energy", "nll_over_n", "r_tilde", "variance_collapsed", "restart_spread",
+        "restart_field_spread", "restart_nll_min", "restart_nll_max", "lr_used",
+        "warm_start_sane", "wall_s",
+    )}
+    fields = []
+    t_sweep = time.perf_counter()
+    for idx, lam in enumerate(lambdas):
+        t0 = time.perf_counter()
+        res, sane, lr_used = _solve_lambda(
+            pi, mu, sigma, lam, edges, lap, args.seed + idx, n_steps, n_restarts
+        )
+        wall = time.perf_counter() - t0
+        fields.append(res.field)
+        rows["energy"].append(res.energy)
+        rows["nll_over_n"].append(res.nll_over_n)
+        rows["r_tilde"].append(res.r_tilde)
+        rows["variance_collapsed"].append(res.variance_collapsed)
+        rows["restart_spread"].append(res.restart_spread)
+        rows["restart_field_spread"].append(res.restart_field_spread)
+        rows["restart_nll_min"].append(float(res.restart_nll_over_n.min()))
+        rows["restart_nll_max"].append(float(res.restart_nll_over_n.max()))
+        rows["lr_used"].append(lr_used)
+        rows["warm_start_sane"].append(sane)
+        rows["wall_s"].append(wall)
+        print(
+            f"[m1] lambda={lam:g}: NLL/N={res.nll_over_n:.4f} R~={res.r_tilde:.5f} "
+            f"collapsed={res.variance_collapsed} sane={sane} ({wall:.1f} s)"
+        )
+
+    np.savez(
+        out_dir / "method1_sweep.npz",
+        lambdas=np.asarray(lambdas, dtype=float),
+        fields=np.stack(fields),
+        probe_lambdas=np.asarray(PROBE_LAMBDAS, dtype=float),
+        probe_r_tilde=np.asarray(probe_r, dtype=float),
+        target_r_tilde=np.float64(target),
+        **{k: np.asarray(v) for k, v in rows.items()},
+    )
+    _update_timings(out_dir, m1_sweep_s=time.perf_counter() - t_sweep)
+    print(f"[m1] wrote {out_dir / 'method1_sweep.npz'}")
+
+
+def run_lambda_star(data, out_dir, args):
+    pi, mu, sigma = data["pi"], data["mu"], data["sigma"]
+    masks = _load_masks(out_dir)
+    edges = masks["edges"]
+    lap = sparse_laplacian(pi.shape[0], edges)
+    target = _target_r_tilde(out_dir, edges)
+    n_steps = 50 if args.quick else N_STEPS
+    n_restarts = 2 if args.quick else N_RESTARTS
+
+    sweep_path = out_dir / "method1_sweep.npz"
+    sweep = dict(np.load(sweep_path))
+    extended = 0
+    while True:
+        try:
+            sel = select_lambda_star(
+                sweep["lambdas"], sweep["r_tilde"], sweep["variance_collapsed"],
+                target, valid=sweep["warm_start_sane"],
+            )
+        except ValueError:
+            # No valid positive-lambda row at all: report the smallest-lambda
+            # row as lambda* and flag the mismatch (S6 final fallback).
+            positive = sweep["lambdas"] > 0
+            idx = int(np.argmin(np.where(positive, sweep["lambdas"], np.inf)))
+            sel = None
+            lambda_star = float(sweep["lambdas"][idx])
+            record = {
+                "lambda_star": lambda_star,
+                "target_r_tilde": float(target),
+                "matched_r_tilde": float(sweep["r_tilde"][idx]),
+                "bracketed": False,
+                "extend_direction": None,
+                "clauses": ["no_valid_rows_smallest_lambda_fallback"],
+            }
+            break
+        if sel.bracketed or extended >= 3:
+            lambda_star = sel.lambda_star
+            record = {
+                "lambda_star": sel.lambda_star,
+                "target_r_tilde": sel.target_r_tilde,
+                "matched_r_tilde": sel.matched_r_tilde,
+                "bracketed": sel.bracketed,
+                "extend_direction": sel.extend_direction,
+                "clauses": sel.clauses,
+            }
+            break
+        # Decade-by-decade extension (S6 clause d), persisted back into the sweep.
+        extended += 1
+        base = sweep["lambdas"].max() if sel.extend_direction == "up" else (
+            sweep["lambdas"][sweep["lambdas"] > 0].min()
+        )
+        factor = 10.0 if sel.extend_direction == "up" else 0.1
+        new_lams = [base * factor ** 0.5, base * factor]
+        print(f"[lambda*] unbracketed ({sel.extend_direction}); extending with {new_lams}")
+        for lam in new_lams:
+            res, sane, lr_used = _solve_lambda(
+                pi, mu, sigma, lam, edges, lap, args.seed + 100 + extended, n_steps, n_restarts
+            )
+            sweep["lambdas"] = np.append(sweep["lambdas"], lam)
+            sweep["fields"] = np.vstack([sweep["fields"], res.field[None]])
+            sweep["energy"] = np.append(sweep["energy"], res.energy)
+            sweep["nll_over_n"] = np.append(sweep["nll_over_n"], res.nll_over_n)
+            sweep["r_tilde"] = np.append(sweep["r_tilde"], res.r_tilde)
+            sweep["variance_collapsed"] = np.append(
+                sweep["variance_collapsed"], res.variance_collapsed
+            )
+            sweep["restart_spread"] = np.append(sweep["restart_spread"], res.restart_spread)
+            sweep["restart_field_spread"] = np.append(
+                sweep["restart_field_spread"], res.restart_field_spread
+            )
+            sweep["restart_nll_min"] = np.append(
+                sweep["restart_nll_min"], res.restart_nll_over_n.min()
+            )
+            sweep["restart_nll_max"] = np.append(
+                sweep["restart_nll_max"], res.restart_nll_over_n.max()
+            )
+            sweep["lr_used"] = np.append(sweep["lr_used"], lr_used)
+            sweep["warm_start_sane"] = np.append(sweep["warm_start_sane"], sane)
+            sweep["wall_s"] = np.append(sweep["wall_s"], np.nan)
+        np.savez(sweep_path, **sweep)
+
+    print(
+        f"[lambda*] lambda* = {record['lambda_star']:g} "
+        f"(target R~ {record['target_r_tilde']:.5f}, bracketed={record['bracketed']}, "
+        f"clauses={record['clauses']})"
+    )
+
+    sensitivity = {}
+    sens_fields = {}
+    for tag, lam in (("half", lambda_star / 2), ("star", lambda_star), ("double", 2 * lambda_star)):
+        res, sane, lr_used = _solve_lambda(
+            pi, mu, sigma, lam, edges, lap, args.seed + 200, n_steps, n_restarts
+        )
+        sens_fields[f"field_{tag}"] = res.field
+        sensitivity[tag] = {
+            "lambda": lam,
+            "nll_over_n": res.nll_over_n,
+            "r_tilde": res.r_tilde,
+            "variance_collapsed": bool(res.variance_collapsed),
+            "restart_nll_min": float(res.restart_nll_over_n.min()),
+            "restart_nll_max": float(res.restart_nll_over_n.max()),
+            "warm_start_sane": sane,
+            "lr_used": lr_used,
+        }
+        print(
+            f"[lambda*] {tag}: lambda={lam:g} NLL/N={res.nll_over_n:.4f} "
+            f"R~={res.r_tilde:.5f} collapsed={res.variance_collapsed}"
+        )
+
+    record["target_anchor"] = TARGET_ANCHOR
+    record["sensitivity"] = sensitivity
+    (out_dir / "lambda_star.json").write_text(json.dumps(record, indent=2) + "\n")
+    np.savez(
+        out_dir / "method1_sensitivity.npz",
+        lambdas=np.asarray([lambda_star / 2, lambda_star, 2 * lambda_star]),
+        **sens_fields,
+    )
+    print(f"[lambda*] wrote {out_dir / 'lambda_star.json'} and method1_sensitivity.npz")
+
+
+def stage_m4(data, out_dir, args):
+    pi, mu, sigma = data["pi"], data["mu"], data["sigma"]
+    masks = _load_masks(out_dir)
+    edges = masks["edges"]
+    ext = _load_extraction(out_dir)
+    betas = BETAS[:2] if args.quick else BETAS
+    max_sweeps = 3 if args.quick else M4_MAX_SWEEPS
+
+    t0 = time.perf_counter()
+    points = beta_sweep(
+        pi, mu, sigma, betas,
+        n_restarts=M4_RESTARTS, seed=args.seed, extraction=ext,
+        max_sweeps=max_sweeps, edges=edges,
+    )
+    elapsed = time.perf_counter() - t0
+    total_sweeps = int(sum(p.restart_n_sweeps.sum() for p in points))
+    s_per_sweep = elapsed / max(total_sweeps, 1)
+    for p in points:
+        print(
+            f"[m4] beta={p.beta:.4g}: NLL/N={p.nll_over_n:.4f} R~={p.r_tilde:.5f} "
+            f"dNLL frac>0.125={p.delta_to_mode['frac_over'][0]:.4f} "
+            f"sweeps={p.restart_n_sweeps.tolist()}"
+        )
+    print(f"[m4] {total_sweeps} ICM sweeps in {elapsed:.0f} s -> {s_per_sweep:.2f} s/sweep")
+
+    np.savez(
+        out_dir / "method4_sweep.npz",
+        betas=np.asarray([p.beta for p in points]),
+        fields=np.stack([p.field for p in points]),
+        assignments=np.stack([p.assignment for p in points]),
+        energy=np.asarray([p.energy for p in points]),
+        nll_over_n=np.asarray([p.nll_over_n for p in points]),
+        r_tilde=np.asarray([p.r_tilde for p in points]),
+        variance_collapsed=np.asarray([p.variance_collapsed for p in points]),
+        restart_spread=np.asarray([p.restart_spread for p in points]),
+        n_sweeps_max=np.asarray([int(p.restart_n_sweeps.max()) for p in points]),
+        wall_s=np.float64(elapsed),
+    )
+    _update_timings(out_dir, m4_sweep_s=elapsed, icm_s_per_sweep=s_per_sweep)
+    print(f"[m4] wrote {out_dir / 'method4_sweep.npz'}")
+
+
+def _collect_fields(out_dir):
+    """All persisted fields keyed by name, with (kind, param) metadata."""
+
+    fields = {}
+    with np.load(out_dir / "anchors.npz") as f:
+        for name in f.files:
+            param = name.split("_n")[-1] if name.startswith("smoothed") else (
+                name.split("seed")[-1] if name.startswith("iid") else ""
+            )
+            kind = "anchor"
+            fields[name] = (f[name], kind, param)
+    with np.load(out_dir / "method1_sweep.npz") as f:
+        for lam, field in zip(f["lambdas"], f["fields"]):
+            fields[f"m1_lam{lam:g}"] = (field, "method1", f"{lam:g}")
+    sens = out_dir / "method1_sensitivity.npz"
+    if sens.exists():
+        with np.load(sens) as f:
+            for tag, lam in zip(("half", "star", "double"), f["lambdas"]):
+                name = "m1_star" if tag == "star" else f"m1_star_{tag}"
+                fields[name] = (f[f"field_{tag}"], "method1_sensitivity", f"{lam:g}")
+    m4 = out_dir / "method4_sweep.npz"
+    if m4.exists():
+        with np.load(m4) as f:
+            for beta, field in zip(f["betas"], f["fields"]):
+                fields[f"m4_beta{beta:.4g}"] = (field, "method4", f"{beta:.4g}")
+    return fields
+
+
+def stage_scores(data, out_dir, args):
+    pi, mu, sigma, latlons = data["pi"], data["mu"], data["sigma"], data["latlons"]
+    masks_all = _load_masks(out_dir)
+    edges = masks_all["edges"]
+    from sampler_research.phase4_eval import STRATUM_ORDER
+
+    masks = {name: masks_all[name] for name in STRATUM_ORDER}
+    with np.load(out_dir / "modes.npz") as f:
+        mode_values, valid_mask = f["mode_values"], f["valid_mask"]
+
+    fields = _collect_fields(out_dir)
+    t0 = time.perf_counter()
+    deltas = {}
+    rows = []
+    for name, (field, kind, param) in fields.items():
+        delta = delta_nll_to_best_mode(field, pi, mu, sigma, mode_values, valid_mask)
+        deltas[name] = delta["per_cell"]
+        nll = gmm_nll_per_cell(field, pi, mu, sigma)
+        row = {"name": name, "kind": kind, "param": param}
+        row.update(stratified_scores(field, nll, edges, masks, delta["per_cell"]))
+        row["wrap_seam_ratio"] = wrap_seam_ratio(field, latlons, edges)
+        rows.append(row)
+    np.savez(out_dir / "delta_per_cell.npz", **deltas)
+    scores_s = time.perf_counter() - t0
+
+    fieldnames = list(rows[0].keys())
+    with open(out_dir / "scores.csv", "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    def _rt(row, suffix=""):
+        if row[f"variance_collapsed{suffix}"]:
+            return "collapsed"
+        return f"{row[f'r_tilde{suffix}']:.5f}"
+
+    lines = [
+        "| name | param | NLL/N | R~ | S_edge | dNLL mean | frac>0.125 | "
+        "NLL/N (bimodal) | frac>0.125 (bimodal) | wrap seam |",
+        "| " + " | ".join(["---"] * 10) + " |",
+    ]
+    for row in rows:
+        lines.append(
+            "| {name} | {param} | {nll:.4f} | {rt} | {se:.5f} | {dm:.4f} | {fr:.4f} | "
+            "{nb:.4f} | {fb:.4f} | {ws:.2f} |".format(
+                name=row["name"], param=row["param"], nll=row["nll_over_n"],
+                rt=_rt(row), se=row["s_edge"], dm=row["dnll_mean"],
+                fr=row["dnll_frac_gt_0p125"], nb=row["nll_over_n__bimodal"],
+                fb=row["dnll_frac_gt_0p125__bimodal"], ws=row["wrap_seam_ratio"],
+            )
+        )
+    (out_dir / "scores.md").write_text("\n".join(lines) + "\n")
+
+    # Variograms for the headline fields (60k pairs, diagnostics.py convention).
+    t0 = time.perf_counter()
+    headline = ["iid_seed0", "mode_map", "mixture_mean", "smoothed_map_n10", "m1_star"]
+    if (out_dir / "method4_sweep.npz").exists() and (out_dir / "lambda_star.json").exists():
+        # nearest-R~ Method 4 row to the lambda* field
+        star_row = next(r for r in rows if r["name"] == "m1_star")
+        m4_rows = [r for r in rows if r["kind"] == "method4"]
+        if m4_rows:
+            nearest = min(m4_rows, key=lambda r: abs(r["r_tilde"] - star_row["r_tilde"]))
+            headline.append(nearest["name"])
+    vario_fields = {n: fields[n][0] for n in headline if n in fields}
+    n_pairs = 10_000 if args.quick else VARIOGRAM_PAIRS
+    centres, variograms, _ = sampled_spherical_variogram(
+        latlons, vario_fields, n_pairs=n_pairs
+    )
+    np.savez(out_dir / "variograms.npz", centres=centres, **variograms)
+    _update_timings(
+        out_dir, scores_s=scores_s, variograms_s=time.perf_counter() - t0
+    )
+    print(f"[scores] wrote scores.csv/.md, delta_per_cell.npz, variograms.npz "
+          f"({len(rows)} fields)")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--stages", type=str, default=",".join(STAGES),
+                        help=f"comma-separated subset of {STAGES}")
+    parser.add_argument("--lambda-star", action="store_true",
+                        help="apply the S6 lambda* rule + sensitivity (needs anchors+m1)")
+    parser.add_argument("--quick", action="store_true", help="smoke mode (reduced settings)")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--data", type=Path, default=DATA_NPZ)
+    parser.add_argument("--out-dir", type=Path, default=RUN_DIR)
+    args = parser.parse_args()
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    data = load_real_marginal(args.data)
+    print(f"loaded {args.data}: N={data['pi'].shape[0]}, K={data['pi'].shape[1]}")
+
+    if args.lambda_star:
+        run_lambda_star(data, args.out_dir, args)
+        return
+
+    requested = [s.strip() for s in args.stages.split(",") if s.strip()]
+    unknown = set(requested) - set(STAGES)
+    if unknown:
+        sys.exit(f"unknown stages: {sorted(unknown)}")
+    stage_fns = {
+        "graph": stage_graph, "anchors": stage_anchors, "modes": stage_modes,
+        "m1": stage_m1, "m4": stage_m4, "scores": stage_scores,
+    }
+    for name in STAGES:
+        if name in requested:
+            stage_fns[name](data, args.out_dir, args)
+
+
+if __name__ == "__main__":
+    main()
