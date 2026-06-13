@@ -1,4 +1,12 @@
-"""Stage D — Method 5 as a Method 1 stochastic-search / robustness ablation.
+"""HISTORICAL (archived 11 Jun 2026) — Stage D closed: "nothing moved".
+
+CUT from the real-data path per phase_4_plan.md "Scope verdicts": every |ΔJ| sat
+within the Stage B restart band, so Method 1's optimiser is validated and re-running
+at scale answers no open question. The verdict lives in large_notes.md (Phase 2
+status) / phase_2.md; the energy-delta table is persisted under
+outputs/runs/stage_d_method5_langevin/. Re-runnable on the toy only.
+
+Stage D — Method 5 as a Method 1 stochastic-search / robustness ablation.
 
 Run from the repo root with the local (numpy-only) venv:
 

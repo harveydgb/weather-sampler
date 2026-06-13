@@ -1,4 +1,14 @@
-"""Method 5 — annealed-noise Langevin **stochastic search** (Phase 2 Stage D).
+"""HISTORICAL (archived 11 Jun 2026) — Stage D closed: "nothing moved".
+
+CUT from the real-data path per phase_4_plan.md "Scope verdicts": the Stage D
+verdict was that stochastic search finds no materially lower-J_lambda basin, i.e.
+Method 1's mode-warm-start + Adam restarts are validated; re-running at scale
+answers no open question. The verdict lives in large_notes.md (Phase 2 status) /
+phase_2.md; the energy-delta evidence is in outputs/runs/stage_d_method5_langevin/.
+Kept for the toy tests; do not port. Langevin-as-sampler stays deferred to the
+ensemble extension.
+
+Method 5 — annealed-noise Langevin **stochastic search** (Phase 2 Stage D).
 
 This is *not* a third sampler family. Method 5 in phase_2_research_plan.md §4.3 is
 tagged INFRASTRUCTURE · DEFERRED→ensemble: it is the engine for Method 1, not a

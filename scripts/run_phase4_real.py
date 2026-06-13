@@ -29,6 +29,7 @@ calibration into a permanent guard.
 
 import argparse
 import csv
+import hashlib
 import json
 import sys
 import time
@@ -81,7 +82,10 @@ SMOOTH_STEP = 0.1
 N_RESTARTS = 4
 N_STEPS = 400
 LR = 0.05
-RESTART_SCALE = 0.15  # ~ median real sigma; the toy default 1.0 would jump ~7 sigma
+# Default Method 1 restart jitter, kept only as a fallback if sigma is unavailable.
+# The runner now derives the operating value from the loaded data (median sigma);
+# on the AE data this resolves to ~0.148, matching the historical 0.15.
+RESTART_SCALE = 0.15
 BETAS = tuple(np.logspace(-2.0, 0.0, 8))
 M4_RESTARTS = 2
 M4_MAX_SWEEPS = 30
@@ -96,11 +100,94 @@ def _update_timings(out_dir, **updates):
     path.write_text(json.dumps(timings, indent=2) + "\n")
 
 
+def _content_hash(path):
+    """SHA-256 of the resolved data file's bytes (streamed)."""
+
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _data_regime(data_path):
+    """Regime/lead label for `data_path`, read from its converter `_meta.json`.
+
+    Forecast leads carry `lead_hours` (and friends) in the sidecar meta written
+    by convert_real_gmm_pt_to_npz.py; the legacy AE files do not, so they fall
+    back to the reconstruction-regime label.
+    """
+
+    data_path = Path(data_path)
+    meta_path = data_path.with_name(data_path.stem + "_meta.json")
+    meta = {}
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text())
+        except (ValueError, OSError):
+            meta = {}
+    if "lead_hours" in meta:
+        label = {"regime": "forecast", "lead_hours": meta["lead_hours"]}
+        for key in ("valid_datetime", "init_datetime", "forecast_step", "from_run_id"):
+            if key in meta:
+                label[key] = meta[key]
+        return label
+    return {"regime": "reconstruction_step0"}
+
+
+def ensure_provenance(out_dir, data_path):
+    """Stamp/verify the out-dir against `data_path` (path + content hash + regime).
+
+    The first stage to run in a fresh out-dir writes provenance.json; every
+    later stage re-checks it and aborts on mismatch, so step-0 anchors can never
+    be silently mixed with a forecast-lead sweep (or vice versa). Returns the
+    regime label dict for stamping into downstream artifacts.
+    """
+
+    data_path = Path(data_path).resolve()
+    regime = _data_regime(data_path)
+    record = {
+        "data_path": str(data_path),
+        "data_sha256": _content_hash(data_path),
+        "regime": regime,
+    }
+    path = out_dir / "provenance.json"
+    if path.exists():
+        existing = json.loads(path.read_text())
+        if existing.get("data_sha256") != record["data_sha256"]:
+            sys.exit(
+                f"[provenance] out-dir {out_dir} was built from\n"
+                f"  {existing.get('data_path')} (sha256 {existing.get('data_sha256', '')[:12]})\n"
+                f"but --data is\n"
+                f"  {record['data_path']} (sha256 {record['data_sha256'][:12]}).\n"
+                "Refusing to mix regimes in one out-dir; use a fresh --out-dir per lead."
+            )
+        return existing.get("regime", regime)
+    path.write_text(json.dumps(record, indent=2) + "\n")
+    print(f"[provenance] stamped {path} (regime={regime}, sha256={record['data_sha256'][:12]})")
+    return regime
+
+
 def stage_graph(data, out_dir, args):
-    t0 = time.perf_counter()
-    edges = knn_sphere_edges(data["latlons"], k=8)
-    arc = edge_arc_km(data["latlons"], edges)
-    elapsed = time.perf_counter() - t0
+    # The k-NN graph (edges + arc lengths) depends only on latlons, which are
+    # identical across all forecast leads. A --graph-cache lets every lead dir
+    # reuse one computed graph instead of recomputing it 8 times; the stratum
+    # masks below still depend on the per-lead GMM params and are recomputed.
+    cache = getattr(args, "graph_cache", None)
+    if cache is not None and Path(cache).exists():
+        with np.load(cache) as f:
+            edges, arc = f["edges"], f["edge_arc_km"]
+        elapsed = 0.0
+        print(f"[graph] reused cached k-NN graph from {cache}")
+    else:
+        t0 = time.perf_counter()
+        edges = knn_sphere_edges(data["latlons"], k=8)
+        arc = edge_arc_km(data["latlons"], edges)
+        elapsed = time.perf_counter() - t0
+        if cache is not None:
+            Path(cache).parent.mkdir(parents=True, exist_ok=True)
+            np.savez(cache, edges=edges, edge_arc_km=arc)
+            print(f"[graph] cached k-NN graph to {cache}")
     print(f"[graph] |E| = {len(edges)} (audit S5 expects 162,406 at k=8)")
     print(
         f"[graph] edge arc km min/median/max = "
@@ -141,17 +228,27 @@ def stage_anchors(data, out_dir, args):
         )
     elapsed = time.perf_counter() - t0
 
-    # Anchor-table continuity check (MUST, phase_4_plan S5): with near-one-hot
-    # pi the mixture mean nearly coincides with the MAP field -- a regime
-    # signature, not an over-smooth anchor.
+    # Anchor-table continuity DIAGNOSTIC (phase_4_plan S5): with near-one-hot pi
+    # the mixture mean nearly coincides with the MAP field. At step 0 this gap is
+    # tiny (< 0.02); under forecast-policy GMMs the pi spread, so the gap GROWING
+    # is the expected finding, not an error. We record the value and never abort.
     nll_map = float(np.mean(gmm_nll_per_cell(fields["mode_map"], pi, mu, sigma)))
     nll_mean = float(np.mean(gmm_nll_per_cell(fields["mixture_mean"], pi, mu, sigma)))
     gap = abs(nll_mean - nll_map)
+    near_one_hot = gap < 0.02
     print(
         f"[anchors] NLL/N(MAP) = {nll_map:.4f}, NLL/N(mixture_mean) = {nll_mean:.4f}, "
-        f"|gap| = {gap:.4f} (near-one-hot signature; must be < 0.02)"
+        f"|gap| = {gap:.4f} -> near-one-hot regime signature "
+        f"{'PRESENT' if near_one_hot else 'ABSENT'} (gap {'<' if near_one_hot else '>='} 0.02)"
     )
-    assert gap < 0.02, "anchor continuity check failed: |NLL/N(mean) - NLL/N(MAP)| >= 0.02"
+    anchors_meta = {
+        "nll_over_n_map": nll_map,
+        "nll_over_n_mixture_mean": nll_mean,
+        "nll_gap_mean_minus_map": gap,
+        "near_one_hot_signature": bool(near_one_hot),
+        "regime": getattr(args, "regime", None),
+    }
+    (out_dir / "anchors_meta.json").write_text(json.dumps(anchors_meta, indent=2) + "\n")
 
     np.savez(out_dir / "anchors.npz", **fields)
     _update_timings(out_dir, anchors_s=elapsed)
@@ -186,7 +283,8 @@ def _load_extraction(out_dir):
         )
 
 
-def _solve_lambda(pi, mu, sigma, lam, edges, lap, seed, n_steps, n_restarts):
+def _solve_lambda(pi, mu, sigma, lam, edges, lap, seed, n_steps, n_restarts,
+                  restart_scale=RESTART_SCALE):
     """Sanity-guarded Method 1 solve: halve lr once on divergence, never more."""
 
     warm, _ = mode_field(pi, mu, sigma)
@@ -197,7 +295,7 @@ def _solve_lambda(pi, mu, sigma, lam, edges, lap, seed, n_steps, n_restarts):
         res = minimise_at_lambda(
             pi, mu, sigma, lam,
             n_restarts=n_restarts, n_steps=n_steps, lr=lr,
-            restart_scale=RESTART_SCALE, rng=np.random.default_rng(seed),
+            restart_scale=restart_scale, rng=np.random.default_rng(seed),
             laplacian=lap, edges=edges,
         )
         sane = bool(np.isfinite(res.energy) and res.energy <= warm_energy + 1e-9)
@@ -238,7 +336,8 @@ def stage_m1(data, out_dir, args):
     probe_r = []
     for i, lam in enumerate(PROBE_LAMBDAS):
         res, _, _ = _solve_lambda(pi, mu, sigma, lam, edges, lap, 1000 + i,
-                                  n_steps=max(50, n_steps // 2), n_restarts=2)
+                                  n_steps=max(50, n_steps // 2), n_restarts=2,
+                                  restart_scale=args.restart_scale)
         probe_r.append(res.r_tilde)
         print(f"[m1] probe lambda={lam:g}: NLL/N={res.nll_over_n:.4f} R~={res.r_tilde:.5f}")
     bracket_ok = min(probe_r) <= target <= max(probe_r)
@@ -260,7 +359,8 @@ def stage_m1(data, out_dir, args):
     for idx, lam in enumerate(lambdas):
         t0 = time.perf_counter()
         res, sane, lr_used = _solve_lambda(
-            pi, mu, sigma, lam, edges, lap, args.seed + idx, n_steps, n_restarts
+            pi, mu, sigma, lam, edges, lap, args.seed + idx, n_steps, n_restarts,
+            restart_scale=args.restart_scale,
         )
         wall = time.perf_counter() - t0
         fields.append(res.field)
@@ -287,8 +387,10 @@ def stage_m1(data, out_dir, args):
         probe_lambdas=np.asarray(PROBE_LAMBDAS, dtype=float),
         probe_r_tilde=np.asarray(probe_r, dtype=float),
         target_r_tilde=np.float64(target),
+        restart_scale=np.float64(args.restart_scale),
         **{k: np.asarray(v) for k, v in rows.items()},
     )
+    print(f"[m1] restart_scale = {args.restart_scale:.4f} (median sigma of loaded data)")
     _update_timings(out_dir, m1_sweep_s=time.perf_counter() - t_sweep)
     print(f"[m1] wrote {out_dir / 'method1_sweep.npz'}")
 
@@ -348,7 +450,8 @@ def run_lambda_star(data, out_dir, args):
         print(f"[lambda*] unbracketed ({sel.extend_direction}); extending with {new_lams}")
         for lam in new_lams:
             res, sane, lr_used = _solve_lambda(
-                pi, mu, sigma, lam, edges, lap, args.seed + 100 + extended, n_steps, n_restarts
+                pi, mu, sigma, lam, edges, lap, args.seed + 100 + extended, n_steps, n_restarts,
+                restart_scale=args.restart_scale,
             )
             sweep["lambdas"] = np.append(sweep["lambdas"], lam)
             sweep["fields"] = np.vstack([sweep["fields"], res.field[None]])
@@ -383,7 +486,8 @@ def run_lambda_star(data, out_dir, args):
     sens_fields = {}
     for tag, lam in (("half", lambda_star / 2), ("star", lambda_star), ("double", 2 * lambda_star)):
         res, sane, lr_used = _solve_lambda(
-            pi, mu, sigma, lam, edges, lap, args.seed + 200, n_steps, n_restarts
+            pi, mu, sigma, lam, edges, lap, args.seed + 200, n_steps, n_restarts,
+            restart_scale=args.restart_scale,
         )
         sens_fields[f"field_{tag}"] = res.field
         sensitivity[tag] = {
@@ -403,6 +507,8 @@ def run_lambda_star(data, out_dir, args):
 
     record["target_anchor"] = TARGET_ANCHOR
     record["sensitivity"] = sensitivity
+    record["regime"] = getattr(args, "regime", None)
+    record["restart_scale"] = float(args.restart_scale)
     (out_dir / "lambda_star.json").write_text(json.dumps(record, indent=2) + "\n")
     np.savez(
         out_dir / "method1_sensitivity.npz",
@@ -436,6 +542,35 @@ def stage_m4(data, out_dir, args):
             f"sweeps={p.restart_n_sweeps.tolist()}"
         )
     print(f"[m4] {total_sweeps} ICM sweeps in {elapsed:.0f} s -> {s_per_sweep:.2f} s/sweep")
+
+    # Non-fatal grid-health monitors (no behaviour change). The step-0 sweep is
+    # pinned by near-one-hot unary gaps; under spread-pi forecast GMMs we expect
+    # it to move, so flag if it is still pinned or if no beta reaches the
+    # smoothed-MAP R-tilde target (the matched-coherence operating point).
+    sweep_fields = np.stack([p.field for p in points])
+    field_span = float(np.max(np.ptp(sweep_fields, axis=0))) if len(points) > 1 else 0.0
+    delta_span = float(np.ptp([p.nll_over_n for p in points])) if len(points) > 1 else 0.0
+    if field_span <= 1e-9 or delta_span <= 1e-9:
+        print(
+            f"[m4] WARNING: beta sweep appears PINNED (max field span {field_span:.2e}, "
+            f"NLL/N span {delta_span:.2e} across betas {betas[0]:g}..{betas[-1]:g}); "
+            "every beta returns essentially the same field. Expected at step 0; "
+            "if seen on forecast GMMs, the grid may need extending."
+        )
+    try:
+        target = _target_r_tilde(out_dir, edges)
+        r_tildes = np.asarray([p.r_tilde for p in points])
+        nearest = float(np.min(np.abs(r_tildes - target)))
+        if nearest > 0.1 * abs(target):
+            print(
+                f"[m4] WARNING: no beta row approaches the smoothed-MAP R~ target "
+                f"{target:.5f} (nearest M4 R~ off by {nearest:.5f}, "
+                f">10% rel); consider extending the beta grid for a matched-R~ comparison."
+            )
+    except SystemExit:
+        # _target_r_tilde hard-stops only on a collapsed target; leave that to
+        # the Method 1 stage and skip the R~-bracket monitor here.
+        print("[m4] (smoothed-MAP target collapsed; skipping R~-bracket monitor)")
 
     np.savez(
         out_dir / "method4_sweep.npz",
@@ -492,6 +627,10 @@ def stage_scores(data, out_dir, args):
     with np.load(out_dir / "modes.npz") as f:
         mode_values, valid_mask = f["mode_values"], f["valid_mask"]
 
+    regime = getattr(args, "regime", None) or {}
+    regime_label = regime.get("regime", "unknown")
+    lead_hours = regime.get("lead_hours", "")
+
     fields = _collect_fields(out_dir)
     t0 = time.perf_counter()
     deltas = {}
@@ -500,7 +639,8 @@ def stage_scores(data, out_dir, args):
         delta = delta_nll_to_best_mode(field, pi, mu, sigma, mode_values, valid_mask)
         deltas[name] = delta["per_cell"]
         nll = gmm_nll_per_cell(field, pi, mu, sigma)
-        row = {"name": name, "kind": kind, "param": param}
+        row = {"name": name, "kind": kind, "param": param,
+               "regime": regime_label, "lead_hours": lead_hours}
         row.update(stratified_scores(field, nll, edges, masks, delta["per_cell"]))
         row["wrap_seam_ratio"] = wrap_seam_ratio(field, latlons, edges)
         rows.append(row)
@@ -568,11 +708,21 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--data", type=Path, default=DATA_NPZ)
     parser.add_argument("--out-dir", type=Path, default=RUN_DIR)
+    parser.add_argument("--graph-cache", type=Path, default=None,
+                        help="shared k-NN graph npz reused across leads (same latlons); "
+                             "computed and cached on first use")
     args = parser.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     data = load_real_marginal(args.data)
     print(f"loaded {args.data}: N={data['pi'].shape[0]}, K={data['pi'].shape[1]}")
+
+    # Provenance stamp/verify (prevents silently mixing regimes in one out-dir)
+    # and the regime/lead label carried into anchors/scores/lambda_star artifacts.
+    args.regime = ensure_provenance(args.out_dir, args.data)
+    # Data-derived Method 1 restart jitter (median sigma); AE data ~ 0.148.
+    args.restart_scale = float(np.median(data["sigma"]))
+    print(f"regime={args.regime}; restart_scale={args.restart_scale:.4f} (median sigma)")
 
     if args.lambda_star:
         run_lambda_star(data, args.out_dir, args)

@@ -30,7 +30,11 @@ from sampler_research.graph import (
     scale_free_roughness,
     sparse_laplacian,
 )
-from sampler_research.io import load_real_marginal, load_sampler_arrays
+from sampler_research.io import (
+    load_real_marginal,
+    load_sampler_arrays,
+    write_forecast_marginals,
+)
 from sampler_research.method4_mrf import (
     delta_nll_to_best_mode,
     extract_gmm_modes,
@@ -147,6 +151,71 @@ def test_load_real_marginal_validates_values(tmp_path):
     np.savez(tmp_path / "badfin2.npz", **data)
     with pytest.raises(ValueError):
         load_real_marginal(tmp_path / "badfin2.npz")
+
+
+# --- forecast-format conversion (11 Jun pre-rerun blocker) -------------------
+
+
+def _synthetic_forecast_step(rng, n, k, lead):
+    pi = rng.dirichlet(np.ones(k), size=n).astype(np.float32)
+    return {
+        "pi": pi,
+        # full multichannel tensors are present in the real .pt but unused here
+        "mu": rng.normal(size=(n, k, 4)).astype(np.float32),
+        "sigma": (0.1 + rng.random((n, k, 4))).astype(np.float32),
+        "mu_channel": rng.normal(size=(n, k)).astype(np.float32),
+        "sigma_channel": (0.1 + rng.random((n, k))).astype(np.float32),
+        "latlons": rng.uniform(-80, 80, size=(n, 2)).astype(np.float32),
+        "lead_hours": float(lead),
+        "valid_datetime": f"2023-11-01T{int(lead):02d}:00:00",
+    }
+
+
+def test_forecast_conversion_roundtrips_through_load_real_marginal(tmp_path):
+    rng = np.random.default_rng(0)
+    n, k = 5, 3
+    obj = {
+        "steps": {1: _synthetic_forecast_step(rng, n, k, 6),
+                  8: _synthetic_forecast_step(rng, n, k, 48)},
+        "target_datetime": "2023-11-01T00:00:00",
+        "from_run_id": "fc_run",
+        "mini_epoch": 3,
+        "channel_of_interest": "2t",
+        "ch_idx": 3,
+        "forecast_steps": 8,
+        "time_step": "0 days 06:00:00",
+    }
+
+    written = write_forecast_marginals(obj, tmp_path)
+    assert sorted(p.name for p in written) == [
+        "phase_4_fc48_step1_2t.npz",
+        "phase_4_fc48_step8_2t.npz",
+    ]
+
+    for p in written:
+        out = load_real_marginal(p)  # validates pi/sigma/finite and renames keys
+        assert out["pi"].shape == (n, k)
+        assert out["mu"].shape == (n, k)
+        assert out["sigma"].shape == (n, k)
+        assert out["latlons"].shape == (n, 2)
+        for arr in out.values():
+            assert arr.dtype == np.float64
+        meta = json.loads((p.parent / (p.stem + "_meta.json")).read_text())
+        assert meta["regime"] == "forecast"
+        assert meta["init_datetime"] == "2023-11-01T00:00:00"
+        assert meta["from_run_id"] == "fc_run"
+
+    # mu_2t must be the renamed mu_channel of the matching step (not the [N,K,4] mu)
+    step8 = load_real_marginal(tmp_path / "phase_4_fc48_step8_2t.npz")
+    assert np.allclose(step8["mu"], obj["steps"][8]["mu_channel"], atol=1e-6)
+    meta8 = json.loads((tmp_path / "phase_4_fc48_step8_2t_meta.json").read_text())
+    assert meta8["lead_hours"] == 48.0
+    assert meta8["forecast_step"] == 8
+
+
+def test_forecast_conversion_rejects_non_forecast_dict(tmp_path):
+    with pytest.raises(KeyError):
+        write_forecast_marginals({"pi": np.zeros((2, 2))}, tmp_path)
 
 
 # --- S1: log-space NLL (S4.8) ------------------------------------------------

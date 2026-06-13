@@ -1,11 +1,14 @@
 """Input/output helpers for sampler research data."""
 
+import json
 from pathlib import Path
 
 import numpy as np
 
 SAMPLER_KEYS = ("pi", "mu", "sigma", "coords")
 REAL_MARGINAL_KEYS = ("pi", "mu_2t", "sigma_2t", "latlons")
+# Per-lead keys in a forecast-format GMM dict (gmm_inference.py --forecast-steps).
+FORECAST_STEP_KEYS = ("pi", "mu_channel", "sigma_channel", "latlons")
 
 
 def load_npz(path):
@@ -67,6 +70,77 @@ def save_npz(path, arrays):
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(path, **arrays)
     return path
+
+
+def forecast_step_to_marginal(step):
+    """Map one forecast-format step dict to the `load_real_marginal` npz contract.
+
+    A forecast step (from `gmm_inference.py --forecast-steps N`) carries the
+    selected-channel marginals as `mu_channel`/`sigma_channel`; this renames them
+    to the `mu_2t`/`sigma_2t` aliases the loader expects. Accepts numpy arrays or
+    torch tensors (via `np.asarray`); returns plain numpy arrays.
+    """
+
+    missing = [k for k in FORECAST_STEP_KEYS if k not in step]
+    if missing:
+        raise KeyError(f"forecast step missing keys: {missing}")
+    return {
+        "pi": np.asarray(step["pi"]),
+        "mu_2t": np.asarray(step["mu_channel"]),
+        "sigma_2t": np.asarray(step["sigma_channel"]),
+        "latlons": np.asarray(step["latlons"]),
+    }
+
+
+def write_forecast_marginals(obj, out_dir, prefix=None):
+    """Emit one `{prefix}_step{k}_2t.npz` + `_meta.json` per forecast lead step.
+
+    `obj` is a forecast-format GMM dict: a top-level `steps` mapping the absolute
+    forecast step `k` to a step dict, plus shared metadata (`target_datetime` =
+    init time, `from_run_id`, ...). Each emitted npz matches the AE contract
+    `load_real_marginal` requires (`pi`/`mu_2t`/`sigma_2t`/`latlons`); each meta
+    JSON carries `lead_hours`, `valid_datetime`, the init time, and `from_run_id`
+    so downstream stages can label the regime/lead. When `prefix` is None it is
+    derived from the horizon (e.g. `phase_4_fc48` for a 48 h max lead). Returns
+    the list of written npz `Path`s.
+    """
+
+    if "steps" not in obj:
+        raise KeyError("not a forecast-format dict (no top-level 'steps')")
+    steps = obj["steps"]
+    if not steps:
+        raise ValueError("forecast dict has an empty 'steps' mapping")
+    leads = [float(s.get("lead_hours", 0.0)) for s in steps.values()]
+    if prefix is None:
+        prefix = f"phase_4_fc{int(round(max(leads)))}"
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written = []
+    for k in sorted(steps, key=lambda kk: int(kk)):
+        step = steps[k]
+        arrays = forecast_step_to_marginal(step)
+        lead = step.get("lead_hours")
+        meta = {
+            "regime": "forecast",
+            "forecast_step": int(k),
+            "lead_hours": float(lead) if lead is not None else None,
+            "valid_datetime": step.get("valid_datetime"),
+            "init_datetime": obj.get("target_datetime"),
+            "from_run_id": obj.get("from_run_id"),
+            "mini_epoch": obj.get("mini_epoch"),
+            "channel_of_interest": obj.get("channel_of_interest"),
+            "ch_idx": obj.get("ch_idx"),
+            "forecast_steps": obj.get("forecast_steps"),
+            "time_step": obj.get("time_step"),
+        }
+        stem = f"{prefix}_step{int(k)}_2t"
+        np.savez_compressed(out_dir / f"{stem}.npz", **arrays)
+        (out_dir / f"{stem}_meta.json").write_text(
+            json.dumps(meta, indent=2, default=str, sort_keys=True) + "\n"
+        )
+        written.append(out_dir / f"{stem}.npz")
+    return written
 
 
 def load_real_checkpoint(path):

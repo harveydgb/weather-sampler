@@ -47,6 +47,28 @@ def _load_rows():
         return list(csv.DictReader(fh))
 
 
+def _regime_label():
+    """Human-readable regime/lead tag for figure suptitles, from the artifacts.
+
+    Prefers provenance.json (written by the runner); falls back to lambda_star.json
+    or the reconstruction-regime default for the committed step-0 run dir.
+    """
+
+    regime = None
+    prov = RUN_DIR / "provenance.json"
+    if prov.exists():
+        regime = json.loads(prov.read_text()).get("regime")
+    if regime is None:
+        star_path = RUN_DIR / "lambda_star.json"
+        if star_path.exists():
+            regime = json.loads(star_path.read_text()).get("regime")
+    if not isinstance(regime, dict):
+        return "reconstruction regime (step 0)" if regime is None else str(regime)
+    if regime.get("regime") == "forecast":
+        return f"forecast regime (+{regime.get('lead_hours', '?')} h lead)"
+    return "reconstruction regime (step 0)"
+
+
 def _mollweide_scatter(ax, latlons, values, title, cmap="viridis", vmin=None, vmax=None):
     sc = ax.scatter(
         np.radians(latlons[:, 1]), np.radians(latlons[:, 0]),
@@ -78,7 +100,10 @@ def fig_maps(latlons, star):
                 fields[f"Method 4 @ beta={nearest['param']}"] = f["fields"][idx]
     fig, _ = plot_mollweide_fields(
         latlons, fields,
-        suptitle="Phase 4: real O96 2t fields (standardised units, single snapshot)",
+        suptitle=(
+            "Phase 4: real O96 2t fields (standardised units, single snapshot)\n"
+            f"{_regime_label()}"
+        ),
     )
     fig.savefig(FIG_DIR / "phase_4_maps.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -148,7 +173,8 @@ def fig_pareto_smear(star):
     ax2.set_title("Smear tail vs coherence (global and bimodal)")
     ax2.legend(fontsize=7)
 
-    fig.tight_layout()
+    fig.suptitle(_regime_label(), fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
     fig.savefig(FIG_DIR / "phase_4_pareto_smear.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("wrote phase_4_pareto_smear.png")
@@ -185,7 +211,10 @@ def fig_bimodal_enrichment(latlons, star):
     width = 0.35
     xs = np.arange(len(names))
     for offset, (mask, label) in enumerate(
-        ((bimodal_1s, "bimodal >1 sigma (5,576 cells)"), (bimodal_2s, "bimodal >2 sigma (604 cells)"))
+        (
+            (bimodal_1s, f"bimodal >1 sigma ({int(bimodal_1s.sum()):,} cells)"),
+            (bimodal_2s, f"bimodal >2 sigma ({int(bimodal_2s.sum()):,} cells)"),
+        )
     ):
         enrich = []
         for n in names:
@@ -211,13 +240,14 @@ def fig_bimodal_enrichment(latlons, star):
     fig.colorbar(sc, ax=ax2, orientation="horizontal", pad=0.05, shrink=0.8,
                  label="log10 dNLL (nats)")
 
-    fig.tight_layout()
+    fig.suptitle(_regime_label(), fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
     fig.savefig(FIG_DIR / "phase_4_bimodal_enrichment.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("wrote phase_4_bimodal_enrichment.png")
 
 
-def fig_robustness():
+def fig_robustness(star):
     with np.load(RUN_DIR / "modes.npz") as f:
         mode_unary = f["mode_unary"]
         mode_counts = f["mode_counts"]
@@ -252,7 +282,8 @@ def fig_robustness():
     points = [
         ("smoothed-MAP n10", float(unit_blur["r_tilde"]), float(unit_blur["nll_over_n"]),
          float(unit_blur["dnll_frac_gt_0p125"]), "tab:orange", "o"),
-        ("M1 @ lambda*=94", float(unit_star["r_tilde"]), float(unit_star["nll_over_n"]),
+        (f"M1 @ lambda*={star['lambda_star']:.0f}", float(unit_star["r_tilde"]),
+         float(unit_star["nll_over_n"]),
          float(unit_star["dnll_frac_gt_0p125"]), "tab:blue", "o"),
         ("smoothed-MAP n10 (w)", w["smoothed_map_n10_weighted"]["r_tilde"],
          w["smoothed_map_n10_weighted"]["nll_over_n"],
@@ -267,7 +298,10 @@ def fig_robustness():
         ax2.annotate(f"{label}\ntail>0.125: {tail:.1%}", (rt, nll), fontsize=7,
                      xytext=(6, -10), textcoords="offset points")
     ax2.set_xscale("log")
-    ax2.set_xlim(2e-3, 1.2e-2)
+    # Auto-derive the log-axis window from the plotted R~ values (was hard-coded
+    # to the step-0 compressed range); half-decade pad on each side.
+    rts = [rt for _, rt, _, _, _, _ in points]
+    ax2.set_xlim(min(rts) / np.sqrt(10), max(rts) * np.sqrt(10))
     ax2.set_xlabel("R~ (unit-weight metric, log axis)")
     ax2.set_ylabel("NLL/N (nats)")
     ax2.set_title(
@@ -276,17 +310,29 @@ def fig_robustness():
         fontsize=10,
     )
 
-    fig.tight_layout()
+    fig.suptitle(_regime_label(), fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     fig.savefig(FIG_DIR / "phase_4_robustness.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("wrote phase_4_robustness.png")
 
 
 def main():
+    global RUN_DIR, FIG_DIR, DATA_NPZ
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--only", nargs="*", default=None,
                         help="subset of {maps, pareto, variogram, enrichment, robustness}")
+    parser.add_argument("--data", type=Path, default=DATA_NPZ,
+                        help="real-marginal npz (mirrors run_phase4_real.py --data)")
+    parser.add_argument("--out-dir", type=Path, default=RUN_DIR,
+                        help="run artifacts dir (mirrors run_phase4_real.py --out-dir)")
+    parser.add_argument("--fig-dir", type=Path, default=FIG_DIR,
+                        help="figure output dir (default outputs/figures)")
     args = parser.parse_args()
+
+    RUN_DIR = args.out_dir
+    FIG_DIR = args.fig_dir
+    DATA_NPZ = args.data
 
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     data = load_real_marginal(DATA_NPZ)
@@ -296,7 +342,7 @@ def main():
         "pareto": lambda: fig_pareto_smear(star),
         "variogram": fig_variogram,
         "enrichment": lambda: fig_bimodal_enrichment(data["latlons"], star),
-        "robustness": fig_robustness,
+        "robustness": lambda: fig_robustness(star),
     }
     requested = args.only if args.only else list(figures)
     unknown = set(requested) - set(figures)

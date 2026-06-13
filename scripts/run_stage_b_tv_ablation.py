@@ -1,4 +1,13 @@
-"""Stage B-TV — three-arm TV ablation + exact-MAP certification of Method 1.
+"""HISTORICAL (archived 11 Jun 2026) — toy TV min-cut certificate; job complete.
+
+This Stage B-TV run is done and its arms are CUT from the real-data path per
+phase_4_plan.md "Scope verdicts". The verdict it produced — exact TV collapses
+rather than smears below R̃ ≈ 0.5 while the global quadratic mode still smears, so
+the smear-vs-smoothness trade-off is structural and the carry-both read stands —
+lives in large_notes.md (Phase 2 status); report in notebooks/03. Re-runnable on
+the toy only.
+
+Stage B-TV — three-arm TV ablation + exact-MAP certification of Method 1.
 
 Run from the repo root with the local venv:
 
