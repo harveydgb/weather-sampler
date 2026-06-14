@@ -131,9 +131,32 @@ def write_forecast_marginals(obj, out_dir, prefix=None):
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    incoming_run_id = obj.get("from_run_id")
     written = []
     for k in sorted(steps, key=lambda kk: int(kk)):
         step = steps[k]
+        stem = f"{prefix}_step{int(k)}_2t"
+
+        # Provenance guard: the runner defaults to a fixed prefix
+        # (DEFAULT_PREFIX) regardless of --forecast-pt, so converting a second
+        # run (e.g. v2/me7) into the same prefix would silently overwrite the
+        # first run's per-lead npz. Refuse to clobber an existing lead whose
+        # meta carries a different `from_run_id`; re-converting the same run is
+        # allowed (idempotent overwrite). Use a distinct --prefix per run.
+        existing_meta = out_dir / f"{stem}_meta.json"
+        if existing_meta.exists():
+            try:
+                prior_run_id = json.loads(existing_meta.read_text()).get("from_run_id")
+            except (ValueError, OSError):
+                prior_run_id = None
+            if prior_run_id != incoming_run_id:
+                raise FileExistsError(
+                    f"{existing_meta.name} already exists from a different run "
+                    f"(from_run_id={prior_run_id!r}); refusing to overwrite with "
+                    f"from_run_id={incoming_run_id!r}. Pass a distinct --prefix "
+                    f"per run (current prefix={prefix!r})."
+                )
+
         arrays = forecast_step_to_marginal(step)
         lead = step.get("lead_hours")
         meta = {
@@ -152,7 +175,6 @@ def write_forecast_marginals(obj, out_dir, prefix=None):
             "norm_std_channel": norm_std_channel,
             "norm_stats_source": obj.get("norm_stats_source"),
         }
-        stem = f"{prefix}_step{int(k)}_2t"
         np.savez_compressed(out_dir / f"{stem}.npz", **arrays)
         (out_dir / f"{stem}_meta.json").write_text(
             json.dumps(meta, indent=2, default=str, sort_keys=True) + "\n"

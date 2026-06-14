@@ -108,3 +108,25 @@ def test_write_forecast_marginals_distinct_prefixes_no_collision(tmp_path):
         "phase_4_fc48_6ep_step1_2t.npz", "phase_4_fc48_6ep_step2_2t.npz",
         "phase_4_fc48_14ep_step1_2t.npz", "phase_4_fc48_14ep_step2_2t.npz",
     }
+
+
+def test_write_forecast_marginals_guards_prefix_collision_across_runs(tmp_path):
+    """F2: a second run reusing the same prefix must not silently clobber the
+    first run's per-lead npz (the runner defaults to a fixed prefix regardless
+    of --forecast-pt). The guard keys on `from_run_id`."""
+    v1 = _good_dict(n_steps=2)
+    v1["from_run_id"] = "gmm_fc48_v1"
+    write_forecast_marginals(v1, tmp_path, prefix="phase_4_fc48_6ep")
+
+    # Same prefix, different source run -> refuse to overwrite.
+    v2 = _good_dict(n_steps=2)
+    v2["from_run_id"] = "gmm_fc48_v2"
+    with pytest.raises(FileExistsError, match="from_run_id"):
+        write_forecast_marginals(v2, tmp_path, prefix="phase_4_fc48_6ep")
+    # The v1 provenance on disk is untouched after the refused write.
+    meta = json.loads((tmp_path / "phase_4_fc48_6ep_step1_2t_meta.json").read_text())
+    assert meta["from_run_id"] == "gmm_fc48_v1"
+
+    # Re-converting the SAME run into the same prefix is an allowed overwrite.
+    written = write_forecast_marginals(v1, tmp_path, prefix="phase_4_fc48_6ep")
+    assert len(written) == 2

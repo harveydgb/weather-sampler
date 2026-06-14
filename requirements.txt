@@ -1,0 +1,17 @@
+# Pinned environment the weather-sampler-research code + report were assessed
+# against (audit response F3). Clean-clone reproduction path:
+#   python -m venv .venv && .venv/bin/pip install -r requirements.txt
+#   .venv/bin/python -m pytest -q
+#
+# numpy/scipy are the runtime dependencies; matplotlib drives the Phase-4
+# figure scripts; pytest runs the suite. All stochastic results seed
+# np.random.default_rng (PCG64), whose streams are stable across these
+# versions, so seeded numbers reproduce exactly. (networkx is intentionally
+# absent -- it is not imported anywhere in the tree.)
+numpy==2.4.6
+scipy==1.17.1
+matplotlib==3.10.9
+pytest==9.0.3
+# The research package itself (editable), so a clean clone can run the suite with
+# a single `pip install -r requirements.txt`; the pins above satisfy its floors.
+-e .

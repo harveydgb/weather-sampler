@@ -121,6 +121,39 @@ def test_m4_operating_beta_reachability_gate(tmp_path):
     assert m._m4_operating_beta(tmp_path) == 1.0
 
 
+def _ci(point, lo, hi):
+    return {"point": point, "lo": lo, "hi": hi, "mean": point,
+            "se": 0.01, "ci": 0.95, "n_boot": 2000}
+
+
+def test_build_bootstrap_macros_emits_points_and_ci_bounds():
+    m = _load()
+    recon = {
+        "global": {"m1": _ci(0.169, 0.165, 0.173), "blur": _ci(0.466, 0.461, 0.471),
+                   "gap": _ci(-0.297, -0.303, -0.291), "n": 40320},
+        "bimodal": {"gap": _ci(-0.025, -0.060, 0.010), "n": 3000},
+    }
+    fc = {"bimodal": {"m1": _ci(0.198, 0.180, 0.216), "blur": _ci(0.294, 0.275, 0.313),
+                      "gap": _ci(-0.096, -0.120, -0.072), "n": 1500}}
+    macros = m.build_bootstrap_macros(recon, fc)
+    assert macros["reconFracMethod"] == "0.169"
+    assert macros["reconFracGapLo"] == "-0.303" and macros["reconFracGapHi"] == "-0.291"
+    assert macros["fcBimodalFracBlur"] == "0.294"
+    # recon-bimodal gap CI straddles 0 (thin stratum) -> honest non-separation
+    assert macros["reconBimodalFracGapLo"] == "-0.060"
+    assert macros["reconBimodalFracGapHi"] == "0.010"
+    assert macros["bootstrapNDraws"] == "2000" and macros["bootstrapCIPct"] == "95"
+
+
+def test_build_bootstrap_macros_placeholders_when_absent():
+    m = _load()
+    macros = m.build_bootstrap_macros({}, {})
+    assert macros["reconFracMethod"] == m.PLACEHOLDER
+    assert macros["fcBimodalFracGapHi"] == m.PLACEHOLDER
+    # the descriptive constants are always present
+    assert macros["bootstrapNDraws"] == "2000"
+
+
 def test_m4_operating_beta_pinned_returns_none(tmp_path):
     import numpy as np
     m = _load()

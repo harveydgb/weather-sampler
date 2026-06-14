@@ -248,10 +248,15 @@ def fig_bimodal_enrichment(latlons, star):
 
 
 def fig_robustness(star):
+    probes_path = RUN_DIR / "robustness_probes.json"
+    if not probes_path.exists():
+        print(f"skip phase_4_robustness.png ({probes_path.name} absent; "
+              "robustness probes not run for this regime)")
+        return
     with np.load(RUN_DIR / "modes.npz") as f:
         mode_unary = f["mode_unary"]
         mode_counts = f["mode_counts"]
-    probes = json.loads((RUN_DIR / "robustness_probes.json").read_text())
+    probes = json.loads(probes_path.read_text())
 
     # mode_unary is +inf on padded slots, so columns 0/1 of the sort are the
     # best and second-best real modes wherever mode_counts >= 2.

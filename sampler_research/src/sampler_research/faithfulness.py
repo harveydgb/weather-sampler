@@ -176,6 +176,57 @@ def delta_crps_iid(pi, mu, sigma, n_members=50, rng=None):
             "n_members": int(n_members)}
 
 
+def bootstrap_cell_statistic(values, statistic, n_boot=1000, ci=0.95, rng=None):
+    """Spatial (within-field) bootstrap of a per-cell `statistic` over cells.
+
+    `values` is `[N]` or `[N, ...]` (cells along axis 0); `statistic` maps a
+    resampled `values` array to a scalar. The N cells are resampled with
+    replacement `n_boot` times (seeded `np.random.default_rng`, PCG64) and the
+    same resampled index is applied to *all* columns, so a paired gap like
+    `statistic([N, 2]) = frac(col0) - frac(col1)` keeps its cell pairing.
+
+    Returns `{"point", "mean", "lo", "hi", "se", "ci", "n_boot"}` where `point`
+    is the statistic on the full sample and `lo`/`hi` are the central-`ci`
+    percentiles of the bootstrap distribution.
+
+    This is a **spatial** bootstrap: it quantifies how much the statistic would
+    wobble across the cells of ONE field/init. It is NOT a sampling distribution
+    over forecast inits or seeds (report F1 scope note) -- it brackets the
+    single-field point estimate, nothing wider.
+    """
+
+    values = np.asarray(values, dtype=float)
+    n = values.shape[0]
+    if n == 0:
+        raise ValueError("cannot bootstrap an empty cell array")
+    if not 0.0 < ci < 1.0:
+        raise ValueError("ci must lie in (0, 1)")
+    rng = rng or np.random.default_rng(0)
+    point = float(statistic(values))
+    boot = np.empty(int(n_boot), dtype=float)
+    for b in range(int(n_boot)):
+        boot[b] = statistic(values[rng.integers(0, n, size=n)])
+    alpha = (1.0 - ci) / 2.0
+    lo, hi = np.quantile(boot, [alpha, 1.0 - alpha])
+    return {"point": point, "mean": float(np.mean(boot)),
+            "lo": float(lo), "hi": float(hi),
+            "se": float(np.std(boot, ddof=1)) if n_boot > 1 else float("nan"),
+            "ci": float(ci), "n_boot": int(n_boot)}
+
+
+def frac_exceeds(delta, threshold=0.125):
+    """Fraction of cells whose per-cell ΔNLL exceeds `threshold` (the smear tail).
+
+    Convenience statistic for `bootstrap_cell_statistic`: on a `[N]` array this
+    is the headline `frac>0.125`; on a `[N, 2]` array (col0 = method, col1 =
+    blur) it returns the two fractions stacked, so a paired gap statistic is
+    `lambda v: frac_exceeds(v)[0] - frac_exceeds(v)[1]`.
+    """
+
+    delta = np.asarray(delta, dtype=float)
+    return np.mean(delta > threshold, axis=0)
+
+
 def field_faithfulness(field, pi, mu, sigma, levels=COVERAGE_LEVELS):
     """Marginal-position summary for one produced (typically deterministic) field.
 

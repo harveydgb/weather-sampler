@@ -104,3 +104,46 @@ def test_ks_uniform_known_values():
     # All PIT at 0.5 -> KS = 0.5; perfectly spread -> small
     assert fth.ks_uniform(np.full(1000, 0.5)) == pytest.approx(0.5, abs=1e-3)
     assert fth.ks_uniform(np.linspace(0, 1, 1001)) < 1e-2
+
+
+def test_ensemble_crps_raises_below_two_members():
+    # Section 8: the fair estimator's 1/(M(M-1)) term is undefined for M < 2.
+    rng = np.random.default_rng(11)
+    y = rng.normal(size=5)
+    with pytest.raises(ValueError, match="at least 2"):
+        fth.ensemble_crps(rng.normal(size=(1, 5)), y)
+
+
+def test_bootstrap_ci_brackets_point_and_is_reproducible():
+    rng = np.random.default_rng(12)
+    delta = rng.gamma(shape=2.0, scale=0.1, size=4000)  # per-cell dNLL-like
+    stat = fth.frac_exceeds  # frac>0.125
+    out1 = fth.bootstrap_cell_statistic(delta, stat, n_boot=500,
+                                        rng=np.random.default_rng(0))
+    out2 = fth.bootstrap_cell_statistic(delta, stat, n_boot=500,
+                                        rng=np.random.default_rng(0))
+    # CI brackets the point estimate ...
+    assert out1["lo"] <= out1["point"] <= out1["hi"]
+    assert out1["lo"] < out1["hi"]
+    # ... and is bitwise reproducible under a fixed seed.
+    assert out1 == out2
+
+
+def test_bootstrap_ci_paired_gap_preserves_cell_pairing():
+    rng = np.random.default_rng(13)
+    n = 3000
+    # Two correlated per-cell delta columns (method vs blur on the SAME cells).
+    base = rng.gamma(2.0, 0.1, size=n)
+    paired = np.column_stack([base * 0.5, base * 1.5])  # method smearier-? blur more
+    gap = lambda v: float(fth.frac_exceeds(v)[0] - fth.frac_exceeds(v)[1])
+    out = fth.bootstrap_cell_statistic(paired, gap, n_boot=400,
+                                       rng=np.random.default_rng(1))
+    # blur (col1) exceeds the threshold more often -> gap is negative, and the
+    # CI sits below zero (a real separation, not a fluke).
+    assert out["point"] < 0.0
+    assert out["hi"] < 0.0
+
+
+def test_bootstrap_ci_raises_on_empty():
+    with pytest.raises(ValueError, match="empty"):
+        fth.bootstrap_cell_statistic(np.array([]), fth.frac_exceeds, n_boot=10)

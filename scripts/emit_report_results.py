@@ -25,6 +25,8 @@ from pathlib import Path
 
 import numpy as np
 
+from sampler_research import faithfulness as fth
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOFT_CSV = REPO_ROOT / "outputs" / "runs" / "phase_4_forecast_softening" / "softening_by_lead.csv"
 FAITH_CSV = REPO_ROOT / "outputs" / "runs" / "phase_4_forecast_faithfulness" / "faithfulness_by_lead.csv"
@@ -311,6 +313,103 @@ def _m4_operating_beta(run_dir, rel_tol=M4_MATCH_REL_TOL):
     return float(betas[nearest])
 
 
+# ----------------------------------------------------- F1 spatial bootstrap CI
+# Matched-R~ smear-fraction comparison: Method 1 @ lambda* vs the smoothed-MAP
+# blur, both at frac(dNLL/cell > 0.125). The bootstrap resamples cells (spatial,
+# within one field/init) to bracket the single-init point estimate -- it is NOT
+# an across-init CI (that is the GPU-gated track-2 / down-scope; see report F1).
+BOOT_METHOD = "m1_star"
+BOOT_BLUR = "smoothed_map_n10"
+BOOT_THRESHOLD = 0.125
+BOOT_N_DRAWS = 2000
+BOOT_SEED = 0
+BOOT_CI = 0.95
+
+
+def _bootstrap_frac_ci(run_dir, strata, *, threshold=BOOT_THRESHOLD,
+                       n_boot=BOOT_N_DRAWS, seed=BOOT_SEED, ci=BOOT_CI,
+                       method=BOOT_METHOD, blur=BOOT_BLUR):
+    """Spatial-bootstrap CI on frac>threshold for method/blur and their paired
+    gap, per stratum, from a run dir's persisted delta_per_cell.npz + masks.npz.
+
+    Returns `{stratum: {"m1", "blur", "gap", "n"}}` (each a
+    `bootstrap_cell_statistic` result) or `{}` if the per-cell deltas are
+    absent. The three statistics share the bootstrap resamples (same seed), so
+    `gap == m1 - blur` holds resample-by-resample.
+    """
+
+    run_dir = Path(run_dir)
+    delta_path = run_dir / "delta_per_cell.npz"
+    if not delta_path.exists():
+        return {}
+    with np.load(delta_path) as f:
+        if method not in f.files or blur not in f.files:
+            return {}
+        dm = np.asarray(f[method], dtype=float)
+        db = np.asarray(f[blur], dtype=float)
+    masks = {}
+    masks_path = run_dir / "masks.npz"
+    if masks_path.exists():
+        with np.load(masks_path) as f:
+            masks = {k: np.asarray(f[k], dtype=bool) for k in f.files
+                     if f[k].shape == dm.shape}
+
+    def _stat(col):  # frac>threshold of one paired column (0=method, 1=blur)
+        return lambda v: float(np.mean(v[:, col] > threshold))
+
+    def _gap(v):
+        return float(np.mean(v[:, 0] > threshold) - np.mean(v[:, 1] > threshold))
+
+    out = {}
+    for stratum in strata:
+        if stratum == "global":
+            sel = np.ones(dm.shape[0], dtype=bool)
+        elif stratum in masks:
+            sel = masks[stratum]
+        else:
+            continue
+        if not sel.any():
+            continue
+        paired = np.column_stack([dm[sel], db[sel]])
+        boot = lambda stat: fth.bootstrap_cell_statistic(
+            paired, stat, n_boot=n_boot, ci=ci, rng=np.random.default_rng(seed))
+        out[stratum] = {"m1": boot(_stat(0)), "blur": boot(_stat(1)),
+                        "gap": boot(_gap), "n": int(sel.sum())}
+    return out
+
+
+def _ci_macros(base, ci_rec):
+    if not ci_rec:
+        return {base: PLACEHOLDER, f"{base}Lo": PLACEHOLDER, f"{base}Hi": PLACEHOLDER}
+    return {base: fmt_pi(ci_rec["point"]),
+            f"{base}Lo": fmt_pi(ci_rec["lo"]), f"{base}Hi": fmt_pi(ci_rec["hi"])}
+
+
+def build_bootstrap_macros(recon, fc):
+    """Pure: spatial-bootstrap CI records -> frac>0.125 CI macros (F1).
+
+    `recon`/`fc` are `{stratum: {"m1","blur","gap","n"}}` dicts (possibly empty);
+    inner values are `bootstrap_cell_statistic` results. Emits point + central-CI
+    bounds for the matched-R~ smear fraction: global + bimodal for the AE recon
+    regime, and the bimodal forecast (+48h) comparison F4 leads with. Empty
+    records -> placeholders, so the document always compiles.
+    """
+
+    rg, rb = recon.get("global", {}), recon.get("bimodal", {})
+    fb = fc.get("bimodal", {})
+    macros = {}
+    macros.update(_ci_macros("reconFracMethod", rg.get("m1")))
+    macros.update(_ci_macros("reconFracBlur", rg.get("blur")))
+    macros.update(_ci_macros("reconFracGap", rg.get("gap")))
+    macros.update(_ci_macros("reconBimodalFracGap", rb.get("gap")))
+    macros.update(_ci_macros("fcBimodalFracMethod", fb.get("m1")))
+    macros.update(_ci_macros("fcBimodalFracBlur", fb.get("blur")))
+    macros.update(_ci_macros("fcBimodalFracGap", fb.get("gap")))
+    macros["bootstrapNDraws"] = str(BOOT_N_DRAWS)
+    macros["bootstrapCIPct"] = format(100.0 * BOOT_CI, ".0f")
+    return macros
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -340,6 +439,11 @@ def main():
             m4_ops[(label, step)] = _m4_operating_beta(args.runs_dir / f"{prefix}_step{step}")
 
     macros = build_macros(soft_rows, lambda_stars, faith_rows, m4_ops, ae)
+    # F1: spatial-bootstrap CI on the matched-R~ smear-fraction comparison.
+    recon_boot = _bootstrap_frac_ci(args.ae_run_dir, ("global", "bimodal"))
+    fc_boot = _bootstrap_frac_ci(args.runs_dir / "phase_4_fc48_6ep_step8",
+                                 ("global", "bimodal"))
+    macros = {**macros, **build_bootstrap_macros(recon_boot, fc_boot)}
     tables = {
         "pi_softening.tex": build_pi_softening_table(soft_rows),
         "lambda_calibration.tex": build_lambda_table(lambda_stars, soft_rows),

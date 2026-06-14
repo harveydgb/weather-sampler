@@ -137,6 +137,12 @@ python -m pytest
 In VS Code/Jupyter, select the `weather-sampler-research (.venv)` kernel for synthetic toy
 notebooks and baseline reports.
 
+The repository and report were assessed against the pinned environment in
+[`requirements.txt`](requirements.txt) (numpy 2.4.6 / scipy 1.17.1 / matplotlib 3.10.9 /
+pytest 9.0.3). For an exact clean-clone reproduction, prefer
+`pip install -r requirements.txt` over the floor-only `pyproject.toml` ranges; seeded
+results then reproduce bitwise.
+
 For real WeatherGenerator checkpoints, use the existing WeatherGenerator environment so
 `torch` and GPU-related dependencies stay owned by that project. To keep that environment
 stable, either install this package without extras:
