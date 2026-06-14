@@ -128,8 +128,11 @@ def _data_regime(data_path):
             meta = {}
     if "lead_hours" in meta:
         label = {"regime": "forecast", "lead_hours": meta["lead_hours"]}
-        for key in ("valid_datetime", "init_datetime", "forecast_step", "from_run_id"):
-            if key in meta:
+        for key in (
+            "valid_datetime", "init_datetime", "forecast_step", "from_run_id",
+            "mini_epoch", "norm_mean_channel", "norm_std_channel",
+        ):
+            if meta.get(key) is not None:
                 label[key] = meta[key]
         return label
     return {"regime": "reconstruction_step0"}

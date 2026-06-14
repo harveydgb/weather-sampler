@@ -128,3 +128,25 @@ def test_skip_convert_plans_only_existing_per_lead_npz_files(tmp_path):
         str(tmp_path / "runs" / f"{prefix}_step1"),
         str(tmp_path / "runs" / f"{prefix}_step8"),
     ]
+
+
+def test_per_lead_figures_exclude_robustness_via_only(tmp_path):
+    """Per-lead figure command must pass --only (excludes the robustness figure,
+    which reads robustness_probes.json the forecast path never generates)."""
+    runner = _load_runner()
+    prefix = "phase_4_fc48_14ep"
+    data_dir = tmp_path / "data"
+    lead_files = runner.expected_lead_files(data_dir, prefix, (8,))
+    commands = runner.build_commands(
+        forecast_pt=tmp_path / "x.pt", prefix=prefix, data_dir=data_dir,
+        runs_dir=tmp_path / "runs", graph_cache=tmp_path / "g.npz",
+        lead_files=lead_files, skip_convert=True, quick=False, figures=True,
+        figures_dir=tmp_path / "figures", convert_python="cp", phase4_python="pp",
+    )
+    fig = next(c.argv for c in commands if c.label == "step8: figures")
+    assert "--only" in fig
+    only_idx = fig.index("--only")
+    only_vals = fig[only_idx + 1: only_idx + 1 + len(runner.LEAD_FIGURE_NAMES)]
+    assert tuple(only_vals) == runner.LEAD_FIGURE_NAMES
+    assert "robustness" not in fig
+    assert "make_phase4_figures.py" in fig[1]

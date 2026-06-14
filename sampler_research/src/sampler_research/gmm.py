@@ -1,6 +1,7 @@
 """Small GMM helper functions used by the existing notebooks."""
 
 import numpy as np
+from scipy.special import ndtr
 
 
 def as_numpy(value):
@@ -53,6 +54,25 @@ def gmm_log_pdf(x, pi, mu, sigma):
     shift = np.where(np.isfinite(shift), shift, 0.0)
     with np.errstate(divide="ignore"):
         return shift[..., 0] + np.log(np.sum(np.exp(log_comp - shift), axis=-1))
+
+
+def gmm_cdf(x, pi, mu, sigma):
+    """GMM cumulative distribution `F(x) = sum_k pi_k Phi((x - mu_k)/sigma_k)`.
+
+    Shape-agnostic in the same convention as `gmm_log_pdf`: the mixture axis is
+    the final axis of `pi`/`mu`/`sigma`, and `x` carries every leading axis
+    (`[N]` or `[H, W]`). Returns values in `[0, 1]`, monotone non-decreasing in
+    `x`; its `x`-derivative is `mixture_pdf` (used for the finite-difference
+    test). The building block for PIT values and quantile coverage
+    (`faithfulness.pit_values`). Dead components (`pi == 0`) contribute nothing.
+    """
+
+    x = np.asarray(x, dtype=float)
+    pi = np.asarray(pi, dtype=float)
+    mu = np.asarray(mu, dtype=float)
+    sigma = np.asarray(sigma, dtype=float)
+    z = (x[..., None] - mu) / sigma
+    return np.sum(pi * ndtr(z), axis=-1)
 
 
 def mixture_mean(pi, mu):

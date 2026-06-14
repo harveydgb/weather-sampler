@@ -98,6 +98,10 @@ def _emit_forecast(obj: dict, out_dir: Path, prefix) -> None:
         for key, value in list(step.items()):
             if isinstance(value, torch.Tensor):
                 step[key] = value.detach().cpu().numpy()
+    # Top-level de-standardisation stats too (carried into per-lead meta).
+    for key in ("norm_mean", "norm_std"):
+        if isinstance(obj.get(key), torch.Tensor):
+            obj[key] = obj[key].detach().cpu().numpy()
     written = write_forecast_marginals(obj, out_dir, prefix=prefix)
     print(f"  forecast: {len(written)} lead steps")
     for p in written:

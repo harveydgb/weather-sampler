@@ -39,6 +39,13 @@ DEFAULT_RUNS_DIR = REPO_ROOT / "outputs" / "runs"
 DEFAULT_GRAPH_CACHE = REPO_ROOT / "outputs" / "runs" / "o96_knn_k8_graph.npz"
 DEFAULT_FIGURES_DIR = REPO_ROOT / "outputs" / "figures"
 
+# Per-lead figures exclude `robustness`: that figure reads robustness_probes.json
+# (written only by scripts/run_phase4_probes.py for the committed step-0 run dir),
+# which the forecast leads never generate -> a bare `--figures` call would crash
+# with FileNotFoundError. The faithfulness figure is produced separately by
+# scripts/run_forecast_faithfulness.py.
+LEAD_FIGURE_NAMES = ("maps", "pareto", "variogram", "enrichment")
+
 LEAD_RE_TEMPLATE = r"^{prefix}_step(?P<step>[0-9]+)_2t\.npz$"
 
 
@@ -220,6 +227,8 @@ def build_lead_commands(
                     (
                         phase4_python,
                         str(FIGURE_SCRIPT),
+                        "--only",
+                        *LEAD_FIGURE_NAMES,
                         "--data",
                         _path_arg(data_npz),
                         "--out-dir",

@@ -56,10 +56,20 @@ in the relevant phase notes.
   numbers: [`research_notes/log.md`](research_notes/log.md) 2026-06-11 entries; report
   notebook: `notebooks/04_phase4_real_data.ipynb`.
 - That artifact is a masked-autoencoder **step-0 reconstruction** (near-one-hot mixture
-  weights — the expected low-uncertainty signature, not a bug). A **forecast-regime retrain**
-  (+6h..+48h leads) is in progress per
-  [`research_notes/forecast_gmm_plan.md`](research_notes/forecast_gmm_plan.md); the step-0
-  results are kept as the reconstruction-regime baseline.
+  weights — the expected low-uncertainty signature, not a bug); it is kept as the
+  reconstruction-regime baseline (the left-hand anchor of the two-regime curve).
+- **Forecast regime landed (13 June 2026):** two +6h..+48h checkpoints extracted —
+  `gmm_fc48_v1` me5 (6-epoch preview) and `gmm_fc48_v2` me7 (converged, 14-epoch). The
+  per-lead Phase 4 audit runs for both via
+  [`scripts/run_phase4_forecast_leads.py`](scripts/run_phase4_forecast_leads.py); mixture
+  weights **soften monotonically with lead** (median max-π 0.95→0.77 at +48h for the
+  converged run) — reproduced cell-for-cell against
+  [`research_notes/log.md`](research_notes/log.md). The forecast-specific reporting layer is
+  built: softening metrics ([`scripts/run_forecast_softening.py`](scripts/run_forecast_softening.py)),
+  marginal-faithfulness / do-no-harm ΔCRPS ([`scripts/run_forecast_faithfulness.py`](scripts/run_forecast_faithfulness.py)),
+  and macro/table emission ([`scripts/emit_report_results.py`](scripts/emit_report_results.py));
+  report notebook `notebooks/05_phase4_forecast_regime.ipynb`. Single init time (2023-11-01)
+  and debug-scale model remain caveats; the 6-epoch column is a lower bound on softening.
 
 ## Layout
 
