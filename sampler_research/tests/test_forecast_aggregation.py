@@ -11,14 +11,13 @@ import csv
 import importlib.util
 import json
 import sys
-from pathlib import Path
 
 import numpy as np
 import pytest
 
 from sampler_research.phase4_eval import select_lambda_star
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from conftest import REPO_ROOT
 SOFT_CSV = REPO_ROOT / "outputs" / "runs" / "phase_4_forecast_softening" / "softening_by_lead.csv"
 FAITH_CSV = REPO_ROOT / "outputs" / "runs" / "phase_4_forecast_faithfulness" / "faithfulness_by_lead.csv"
 FC_RUN = REPO_ROOT / "outputs" / "runs" / "phase_4_fc48_14ep_step8"

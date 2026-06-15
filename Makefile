@@ -1,0 +1,41 @@
+# Reproduce the Chapter-5 forecast-regime results, in dependency order.
+# Each step reads the previous step's persisted artifacts under outputs/.
+# Run on a machine that has the converted per-lead .npz present (or run
+# `make forecast-leads` first, which needs the WeatherGenerator venv + the .pt).
+#
+#   make ch5        # softening -> faithfulness -> per-lead figures -> emit macros
+#   make test       # the regression suite (203 passed, 1 skipped)
+#   make report     # build report/thesis.pdf
+#
+# The emitter refuses to run when the forecast artifacts are absent (so a stray
+# run cannot clobber the committed macros); regenerate the artifacts first.
+
+PY := .venv/bin/python
+
+.PHONY: ch5 forecast-leads softening faithfulness figures emit test report
+
+## Full per-lead Phase 4 audit for both checkpoints + the converged replicate
+## inits. Needs ~/model_outputs/*.pt and the WeatherGenerator venv (torch).
+forecast-leads:
+	$(PY) scripts/run_phase4_forecast_leads.py --prefix phase_4_fc48_6ep  --figures
+	$(PY) scripts/run_phase4_forecast_leads.py --prefix phase_4_fc48_14ep --figures \
+		--forecast-pt ~/model_outputs/gmm_params_gmm_fc48_v2_me7_2t_f8.pt
+
+softening:
+	$(PY) scripts/run_forecast_softening.py
+
+faithfulness:
+	$(PY) scripts/run_forecast_faithfulness.py
+
+emit:
+	$(PY) scripts/emit_report_results.py
+
+## The Chapter-5 reporting chain (assumes the per-lead runs already landed).
+ch5: softening faithfulness emit
+	@echo "[ch5] softening + faithfulness CSVs and report macros/tables regenerated"
+
+test:
+	$(PY) -m pytest -q
+
+report:
+	cd report && latexmk -pdf thesis.tex

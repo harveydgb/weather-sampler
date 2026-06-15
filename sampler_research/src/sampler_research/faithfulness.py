@@ -147,7 +147,7 @@ def ensemble_crps(samples, y):
 def gmm_ensemble(pi, mu, sigma, n_members, rng=None):
     """Stack `n_members` independent iid GMM draws into an `[M, N]` ensemble."""
 
-    rng = rng or np.random.default_rng()
+    rng = np.random.default_rng() if rng is None else rng
     draws = [sample_iid_gmm(pi, mu, sigma, rng)[0] for _ in range(int(n_members))]
     return np.stack(draws, axis=0)
 
@@ -163,7 +163,7 @@ def delta_crps_iid(pi, mu, sigma, n_members=50, rng=None):
     deterministic field (that would conflate marginal position with calibration).
     """
 
-    rng = rng or np.random.default_rng(0)
+    rng = np.random.default_rng(0) if rng is None else rng
     pi = np.asarray(pi, dtype=float)
     mu = np.asarray(mu, dtype=float)
     sigma = np.asarray(sigma, dtype=float)
@@ -201,7 +201,7 @@ def bootstrap_cell_statistic(values, statistic, n_boot=1000, ci=0.95, rng=None):
         raise ValueError("cannot bootstrap an empty cell array")
     if not 0.0 < ci < 1.0:
         raise ValueError("ci must lie in (0, 1)")
-    rng = rng or np.random.default_rng(0)
+    rng = np.random.default_rng(0) if rng is None else rng
     point = float(statistic(values))
     boot = np.empty(int(n_boot), dtype=float)
     for b in range(int(n_boot)):

@@ -7,15 +7,14 @@ npz are absent (local, gitignored artifacts; regenerate via
 scripts/convert_real_gmm_pt_to_npz.py --format forecast).
 """
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 
 from sampler_research.forecast_diag import SOFTENING_METRIC_KEYS, softening_metrics
 from sampler_research.io import load_real_marginal
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from conftest import REPO_ROOT
+
 DATA_DIR = REPO_ROOT / "outputs" / "data"
 
 # (prefix, step) -> (median_max_pi, one_hot_%, median_2nd_mode, bimod1_%, bimod2_%, keff_%)

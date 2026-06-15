@@ -10,12 +10,11 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from pathlib import Path
 
 import pytest
 
+from conftest import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "make_phase4_figures.py"
 
 
@@ -51,3 +50,26 @@ def test_fig_robustness_passes_guard_when_probes_present(tmp_path):
 
     with pytest.raises(FileNotFoundError):
         figures.fig_robustness({"lambda_star": 93.74})
+
+
+import re
+
+THESIS = REPO_ROOT / "report" / "thesis.tex"
+FIG_DIR = REPO_ROOT / "outputs" / "figures"
+# Forecast-chapter figures must show the +48h converged render (step 8), not the
+# default reconstruction render that shares the bare filename. Pins audit T1.
+_FORECAST_STEP8 = "phase_4_fc48_14ep_step8"
+
+
+@pytest.mark.skipif(not THESIS.exists(), reason="report/thesis.tex absent")
+@pytest.mark.parametrize("stem", ["phase_4_pareto_smear.png", "phase_4_variogram.png"])
+def test_forecast_figures_point_at_step8_render(stem):
+    """The Ch5 pareto-smear and the descriptive variogram must \\includegraphics
+    the +48h converged render, and that asset must exist."""
+    text = THESIS.read_text()
+    includes = re.findall(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]*" + re.escape(stem) + r")\}", text)
+    assert includes, f"no \\includegraphics for {stem} in thesis.tex"
+    for path in includes:
+        assert path == f"{_FORECAST_STEP8}/{stem}", (
+            f"{stem} should resolve to the +48h step-8 render, got {path!r}")
+        assert (FIG_DIR / path).exists(), f"missing forecast render asset: {path}"

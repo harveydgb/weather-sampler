@@ -37,8 +37,8 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sampler_research" / "src"))
 from sampler_research.io import write_forecast_marginals  # noqa: E402
 
-SRC = Path("/users/harvey_bermingham/model_outputs")
-DST = Path("/users/harvey_bermingham/weather-sampler-research/outputs/data")
+SRC = Path("~/model_outputs").expanduser()
+DST = Path(__file__).resolve().parents[1] / "outputs" / "data"
 
 # Legacy masking-AE inputs converted when the script is run with no --input.
 LEGACY_AE_FILES = {
@@ -109,7 +109,10 @@ def _emit_forecast(obj: dict, out_dir: Path, prefix) -> None:
 
 
 def convert(src: Path, out_dir: Path, fmt: str = "auto", stem=None, prefix=None) -> None:
-    obj = torch.load(src, map_location="cpu", weights_only=False)
+    try:
+        obj = torch.load(src, map_location="cpu", weights_only=False)
+    except TypeError:
+        obj = torch.load(src, map_location="cpu")
     print(f"\n=== {src.name} ===")
     if fmt == "auto":
         fmt = "forecast" if isinstance(obj, dict) and "steps" in obj else "ae"
@@ -125,6 +128,8 @@ def main() -> None:
     parser.add_argument("--input", type=Path, nargs="*",
                         help="input .pt path(s); if omitted, convert the two legacy AE files")
     parser.add_argument("--out-dir", type=Path, default=DST)
+    parser.add_argument("--src-dir", type=Path, default=SRC,
+                        help="directory holding the legacy AE .pt files (default: ~/model_outputs)")
     parser.add_argument("--format", choices=["auto", "ae", "forecast"], default="auto")
     parser.add_argument("--prefix", default=None,
                         help="forecast npz prefix (default: derived from horizon, e.g. phase_4_fc48)")
@@ -134,7 +139,7 @@ def main() -> None:
 
     if not args.input:
         for name, stem in LEGACY_AE_FILES.items():
-            convert(SRC / name, args.out_dir, fmt="ae", stem=stem)
+            convert(args.src_dir / name, args.out_dir, fmt="ae", stem=stem)
         return
 
     if args.stem and len(args.input) > 1:

@@ -408,6 +408,11 @@ def run_lambda_star(data, out_dir, args):
     n_restarts = 2 if args.quick else N_RESTARTS
 
     sweep_path = out_dir / "method1_sweep.npz"
+    if not sweep_path.exists():
+        sys.exit(
+            "[lambda*] needs the m1 + anchors stages first; "
+            "run --stages graph,anchors,modes,m1"
+        )
     sweep = dict(np.load(sweep_path))
     extended = 0
     while True:

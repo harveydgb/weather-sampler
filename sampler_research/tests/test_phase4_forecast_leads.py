@@ -10,8 +10,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+from conftest import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "run_phase4_forecast_leads.py"
 
 

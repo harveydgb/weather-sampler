@@ -93,7 +93,7 @@ def sample_iid_gmm(
     final axis, so the function works for both `[N, K]` and `[H, W, K]` arrays.
     """
 
-    rng = rng or np.random.default_rng()
+    rng = np.random.default_rng() if rng is None else rng
     pi = np.asarray(pi, dtype=float)
     mu = np.asarray(mu, dtype=float)
     sigma = np.asarray(sigma, dtype=float)

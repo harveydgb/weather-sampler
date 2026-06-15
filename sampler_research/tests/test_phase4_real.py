@@ -9,7 +9,6 @@ artifacts are absent (regenerate via scripts/run_stage_*.py).
 import csv
 import json
 import os
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -50,21 +49,20 @@ from sampler_research.phase4_eval import (
 )
 from sampler_research.regularised_map import minimise_at_lambda, nll_gradient
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-REAL_NPZ = REPO_ROOT / "outputs" / "data" / "phase_4_real_2t.npz"
-TOY_NPZ = REPO_ROOT / "outputs" / "data" / "phase_1_homoscedastic.npz"
+from conftest import (
+    PHASE4_RUN_DIR,
+    REAL_NPZ,
+    REPO_ROOT,
+    TOY_NPZ,
+    needs_phase4_run,
+    needs_real,
+    needs_toy,
+)
+
 STAGE_A_DIR = REPO_ROOT / "outputs" / "runs" / "stage_a_baselines"
 STAGE_B_NPZ = (
     REPO_ROOT / "outputs" / "runs" / "stage_b_regularised_map"
     / "phase_1_homoscedastic_regularised_map.npz"
-)
-PHASE4_RUN_DIR = REPO_ROOT / "outputs" / "runs" / "phase_4_real"
-
-needs_real = pytest.mark.skipif(not REAL_NPZ.exists(), reason="real Phase 4 npz absent")
-needs_toy = pytest.mark.skipif(not TOY_NPZ.exists(), reason="phase 1 toy npz absent")
-needs_phase4_run = pytest.mark.skipif(
-    not (PHASE4_RUN_DIR / "method1_sweep.npz").exists(),
-    reason="persisted phase_4_real run artifacts absent",
 )
 slow_guard = pytest.mark.skipif(
     not os.environ.get("PHASE4_SLOW"),

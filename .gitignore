@@ -10,6 +10,7 @@ dist/
 venv/
 .env
 .envrc
+.claude/settings.local.json
 
 # Tool caches
 .pytest_cache/

@@ -113,6 +113,12 @@ def build_macros(soft_rows, lambda_stars, faith_rows, m4_ops, ae):
             macros[f"secondModeMass{hour}{col}"] = (
                 fmt_pi(row["median_second_mode"]) if row else PLACEHOLDER
             )
+            # Well-separated (>2sigma) bimodal fraction: the "emerges with training"
+            # result. Rare/flat at 6ep, grows with lead in the converged column.
+            # `.get` (not `[]`) keeps the pure-fixture tests placeholder-safe.
+            macros[f"bimodalTwoSigma{hour}{col}"] = (
+                fmt_pct(row.get("bimodal_frac_2sigma")) if row else PLACEHOLDER
+            )
 
     macros["reconstructionLambdaStar"] = fmt_lambda(ae.get("lambda_star"))
     macros["reconstructionBeta"] = fmt_beta(ae.get("beta"))
@@ -300,6 +306,103 @@ def _load_lambda_stars(runs_dir):
                 "matched_r_tilde": rec.get("matched_r_tilde"),
                 "bracketed": rec.get("bracketed", True),
             }
+    return out
+
+
+# ------------------------------------------- across-init M1 vs smoothed-MAP gap
+# Headline comparison ("M1 beats smoothed-MAP at matched R-tilde") resampled over
+# forecast INITIAL CONDITIONS rather than cells: the resampling unit an examiner
+# expects on the method comparison. m1_star (M1 @ lambda*) and smoothed_map_n10
+# sit at matched coherence by construction (lambda* is chosen to bracket the
+# blur's R-tilde), so both per-lead gaps below are paired at matched R-tilde.
+# Negative = M1 wins. Distinct from `_bootstrap_frac_ci`, which resamples CELLS
+# within one field (spatial variability, NOT an across-init CI).
+COMPARISON_METHOD = "m1_star"
+COMPARISON_BLUR = "smoothed_map_n10"
+COMPARISON_NLL_COL = "nll_over_n"               # lower is better
+COMPARISON_SMEAR_COL = "dnll_frac_gt_0p125"     # frac dNLL/cell > 0.125, lower is better
+COMPARISON_GAP_KEYS = ("gap_nll", "gap_smear")
+
+
+def _scores_row(scores_path, name):
+    """The scores.csv row dict named `name`, or None if file/row absent."""
+    if not Path(scores_path).exists():
+        return None
+    with open(scores_path) as fh:
+        for row in csv.DictReader(fh):
+            if row.get("name") == name:
+                return row
+    return None
+
+
+def comparison_gap_rows(runs_dir, prefix, *, method=COMPARISON_METHOD,
+                        blur=COMPARISON_BLUR):
+    """Per-lead M1-minus-smoothed-MAP paired gaps for one init prefix.
+
+    Reads each `{prefix}_step{k}/scores.csv` and returns one dict per lead with
+    `gap_nll` (NLL/N) and `gap_smear` (frac dNLL/cell > 0.125), both
+    method-minus-blur (negative = M1 wins) at matched R-tilde. init_datetime is
+    read from the run's lambda_star.json regime when present. A step missing
+    either row is skipped, so a not-yet-scored init contributes nothing and the
+    across-init aggregate still runs (single-init-safe, like the softening path).
+    """
+
+    rows = []
+    paths = sorted(Path(runs_dir).glob(f"{prefix}_step*/scores.csv"),
+                   key=lambda p: int(p.parent.name.split("_step")[1]))
+    for path in paths:
+        step = int(path.parent.name.split("_step")[1])
+        m1 = _scores_row(path, method)
+        bl = _scores_row(path, blur)
+        if m1 is None or bl is None:
+            continue
+        init_dt = None
+        ls_path = path.parent / "lambda_star.json"
+        if ls_path.exists():
+            init_dt = json.loads(ls_path.read_text()).get("regime", {}).get("init_datetime")
+        rows.append({
+            "prefix": prefix, "step": step,
+            "lead_hours": float(m1["lead_hours"]),
+            "init_datetime": init_dt,
+            "gap_nll": float(m1[COMPARISON_NLL_COL]) - float(bl[COMPARISON_NLL_COL]),
+            "gap_smear": float(m1[COMPARISON_SMEAR_COL]) - float(bl[COMPARISON_SMEAR_COL]),
+            "m1_r_tilde": float(m1["r_tilde"]),
+            "blur_r_tilde": float(bl["r_tilde"]),
+        })
+    return rows
+
+
+def aggregate_comparison_gaps(per_init, *, label, column):
+    """Across-init mean + min-max range of the M1-minus-blur gaps, per lead.
+
+    `per_init`: list of (prefix, rows) from `comparison_gap_rows`. Mirrors
+    `run_forecast_faithfulness.aggregate_converged_faith`: one `kind='init_mean'`
+    row per lead step holding the across-init mean of each gap plus `{k}_lo` /
+    `{k}_hi` min-max. The spread is a RANGE over distinct synoptic cases, NOT a
+    sampling CI -- keep that wording until >= 8 inits make a percentile/t interval
+    honest. Fewer than two inits with rows -> [].
+    """
+
+    present = [(prefix, rows) for prefix, rows in per_init if rows]
+    if len(present) < 2:
+        return []
+    by_step = {}
+    for _prefix, rows in present:
+        for row in rows:
+            by_step.setdefault(int(row["step"]), []).append(row)
+    out = []
+    for step in sorted(by_step):
+        group = by_step[step]
+        inits = sorted({str(r.get("init_datetime")) for r in group})
+        agg = {"run": label, "column": column, "kind": "init_mean",
+               "n_inits": len(group), "init_datetime": ";".join(inits),
+               "step": step, "lead_hours": group[0]["lead_hours"]}
+        for key in COMPARISON_GAP_KEYS:
+            vals = [float(r[key]) for r in group if r.get(key) is not None]
+            agg[key] = sum(vals) / len(vals)
+            agg[f"{key}_lo"] = min(vals)
+            agg[f"{key}_hi"] = max(vals)
+        out.append(agg)
     return out
 
 
@@ -533,6 +636,53 @@ def build_crps_extremum_macros(faith_rows):
     return {"deltaCrpsMaxAbs": fmt_sci(max(vals)) if vals else PLACEHOLDER}
 
 
+# ------------------------------------------ across-init M1 vs smoothed-MAP gap
+# Probe-#2 error bar: the headline "M1 beats smoothed-MAP at matched R-tilde"
+# resampled over forecast INITS (not cells, like the bootstrap above). Init
+# prefixes are discovered from the scored run dirs, so adding inits needs no edit
+# here -- the canonical init A plus every `phase_4_fc48_v2_init*` replicate.
+CONVERGED_HEADLINE_PREFIX = "phase_4_fc48_14ep"       # init A (canonical)
+CONVERGED_REPLICATE_GLOB = "phase_4_fc48_v2_init*"    # replicate inits B, C, ...
+
+
+def _discover_converged_prefixes(runs_dir):
+    """Converged-column init prefixes that have scored run dirs, canonical-first."""
+    runs_dir = Path(runs_dir)
+    prefixes = []
+    if any(runs_dir.glob(f"{CONVERGED_HEADLINE_PREFIX}_step*")):
+        prefixes.append(CONVERGED_HEADLINE_PREFIX)
+    seen = set()
+    for path in sorted(runs_dir.glob(f"{CONVERGED_REPLICATE_GLOB}_step*")):
+        prefix = path.name.rsplit("_step", 1)[0]
+        if prefix not in seen:
+            seen.add(prefix)
+            prefixes.append(prefix)
+    return prefixes
+
+
+def build_comparison_gap_macros(gap_means):
+    """Pure: `kind='init_mean'` gap rows -> across-init Mean/Lo/Hi gap macros.
+
+    For the two headline leads (+6h = step 1, +48h = step 8) of the Converged
+    column emits `gap{Nll,Smear}{Hour}Converged{Mean,Lo,Hi}` (signed; negative =
+    M1 beats the smoothed-MAP blur at matched R-tilde) plus `comparisonNInits`.
+    The spread is a RANGE over distinct synoptic inits, NOT a sampling CI -- keep
+    that wording in prose until >= 8 inits. Aggregate absent -> placeholders.
+    """
+
+    means = {int(r["step"]): r for r in gap_means if r.get("kind") == "init_mean"}
+    macros = {}
+    n_inits = None
+    for hour, step in HOUR_STEP.items():
+        row = means.get(step)
+        if row is not None and n_inits is None:
+            n_inits = row.get("n_inits")
+        _mean_lo_hi(macros, f"gapNll{hour}Converged", row, "gap_nll", fmt_delta)
+        _mean_lo_hi(macros, f"gapSmear{hour}Converged", row, "gap_smear", fmt_delta)
+    macros["comparisonNInits"] = str(int(n_inits)) if n_inits else PLACEHOLDER
+    return macros
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -541,11 +691,27 @@ def main():
     parser.add_argument("--runs-dir", type=Path, default=RUNS_DIR)
     parser.add_argument("--ae-run-dir", type=Path, default=AE_RUN_DIR)
     parser.add_argument("--report-dir", type=Path, default=REPORT_DIR)
+    parser.add_argument("--allow-empty", action="store_true",
+                        help="emit even when the forecast artifacts are absent "
+                             "(writes em-dash placeholders; off by default so a "
+                             "stray run cannot clobber the committed macros)")
     args = parser.parse_args()
 
     soft_rows = _read_csv_numeric(args.soft_csv)
     faith_rows = _read_csv_numeric(args.faith_csv)
     lambda_stars = _load_lambda_stars(args.runs_dir)
+
+    # Clobber guard: the emitter's inputs (softening/faithfulness CSVs, per-lead
+    # lambda_star.json) are git-ignored, so on a fresh clone they are absent. A
+    # bare run would otherwise overwrite the committed macros/tables with
+    # placeholders. Refuse unless --allow-empty is passed on purpose.
+    if not (soft_rows or faith_rows or lambda_stars) and not args.allow_empty:
+        raise SystemExit(
+            "[emit] forecast artifacts absent (no softening/faithfulness rows, no "
+            "per-lead lambda_star.json under --runs-dir); refusing to overwrite the "
+            "committed macros/tables. Regenerate the artifacts (run the Phase 4 "
+            "forecast pipeline) or pass --allow-empty to write placeholders on purpose."
+        )
 
     ae = {"lambda_star": None, "beta": None}
     ae_star = Path(args.ae_run_dir) / "lambda_star.json"
@@ -575,6 +741,13 @@ def main():
               **build_faithfulness_spread_macros(faith_rows)}
     # C2: worst-case do-no-harm |dCRPS| over converged single+init rows.
     macros = {**macros, **build_crps_extremum_macros(faith_rows)}
+    # #4: across-init M1-minus-smoothed-MAP gap at matched R~ -- the error bar on
+    # the headline comparison, resampled over forecast inits (not cells).
+    gap_per_init = [(p, comparison_gap_rows(args.runs_dir, p))
+                    for p in _discover_converged_prefixes(args.runs_dir)]
+    gap_means = aggregate_comparison_gaps(
+        gap_per_init, label=COL_TO_LABEL["Converged"], column="Converged")
+    macros = {**macros, **build_comparison_gap_macros(gap_means)}
     tables = {
         "pi_softening.tex": build_pi_softening_table(soft_rows),
         "lambda_calibration.tex": build_lambda_table(lambda_stars, soft_rows),

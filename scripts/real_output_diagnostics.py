@@ -11,13 +11,11 @@ Run the existing real-checkpoint salt-and-pepper diagnostics."""
 
 import argparse
 from pathlib import Path
-import sys
 
 import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE_ROOT = PROJECT_ROOT.parent
-sys.path.insert(0, str(PROJECT_ROOT / "sampler_research" / "src"))
 
 from sampler_research.diagnostics import sampled_spherical_variogram
 from sampler_research.gmm import (

@@ -268,7 +268,7 @@ def solve_value_mrf(
     edges = np.asarray(edges, dtype=np.int64)
     if n_edges is None:
         n_edges = len(edges)
-    rng = rng or np.random.default_rng()
+    rng = np.random.default_rng() if rng is None else rng
 
     pairwise_weight = beta * n / n_edges
     mode_values = extraction.mode_values

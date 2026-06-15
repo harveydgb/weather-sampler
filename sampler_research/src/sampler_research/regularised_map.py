@@ -69,7 +69,12 @@ def nll_gradient(field_grid, pi, mu, sigma):
     # Component densities and responsibilities r_ik = pi_ik N_ik / p_i.
     comp = pi * normal_pdf(field_grid[..., None], mu, sigma)  # [H, W, K]
     density = np.sum(comp, axis=-1)  # p_i(x_i), == mixture_pdf(...)
-    resp = comp / density[..., None]  # [H, W, K]
+    # Guard the responsibility divide: a far-off-mode underflow (density -> 0)
+    # would give 0/0 = NaN. np.where returns exactly comp/density wherever
+    # density > 0 (same float bits), so results do not move; only the
+    # pathological underflow region changes NaN -> finite (zero) gradient.
+    with np.errstate(invalid="ignore", divide="ignore"):
+        resp = np.where(density[..., None] > 0.0, comp / density[..., None], 0.0)  # [H, W, K]
 
     # d(-log p_i)/dx_i = - sum_k r_ik (mu_ik - x_i)/sigma_ik^2.
     per_component = resp * (mu - field_grid[..., None]) / sigma**2
@@ -305,7 +310,7 @@ def minimise_at_lambda(
         raise ValueError("mu must have shape [H, W, K] or [N, K]")
     if n_edges is None:
         n_edges = len(edges)
-    rng = rng or np.random.default_rng()
+    rng = np.random.default_rng() if rng is None else rng
 
     warm, _ = mode_field(pi, mu, sigma)
 

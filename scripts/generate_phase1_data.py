@@ -8,10 +8,8 @@ per-location component-shared sigma).
 
 import argparse
 from pathlib import Path
-import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "sampler_research" / "src"))
 
 from sampler_research.io import load_npz
 from sampler_research.toy import Phase1ToyConfig, save_phase1_toy

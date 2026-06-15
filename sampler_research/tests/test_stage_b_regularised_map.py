@@ -20,6 +20,7 @@ from sampler_research.io import load_sampler_arrays
 from sampler_research.regularised_map import (
     lambda_sweep,
     minimise_at_lambda,
+    nll_gradient,
     objective,
     objective_gradient,
 )
@@ -94,7 +95,7 @@ def test_objective_gradient_matches_finite_difference(lam):
     assert np.allclose(analytic, numeric, rtol=1e-5, atol=1e-7)
 
 
-def test_nll_gradient_zero_far_from_all_modes_is_small():
+def test_objective_gradient_finite_at_mode_field():
     """Sanity: gradient is finite everywhere and the objective is differentiable."""
 
     pi, mu, sigma = _headline_toy()
@@ -104,6 +105,24 @@ def test_nll_gradient_zero_far_from_all_modes_is_small():
     grad = objective_gradient(field, pi, mu, sigma, 0.5, laplacian=laplacian, n_edges=n_edges)
     assert grad.shape == (8, 8)
     assert np.all(np.isfinite(grad))
+
+
+def test_nll_gradient_finite_far_off_every_mode():
+    """Pushing a cell far beyond the underflow horizon (~38.6 sigma) of every
+    mode drives the GMM density p_i(x_i) to exactly 0.0 in float64. The
+    responsibility-divide guard (A1) must then return a finite (zero) gradient
+    contribution there instead of 0/0 = NaN (this fails on the pre-guard code)."""
+
+    pi, mu, sigma = _headline_toy()
+    field, _ = mode_field(pi, mu, sigma)
+    field = field.copy()
+    field[0, 0] = float(np.max(mu[0, 0])) + 1.0e6 * float(np.max(sigma[0, 0]))
+
+    grad = nll_gradient(field, pi, mu, sigma)
+    assert grad.shape == (8, 8)
+    assert np.all(np.isfinite(grad))
+    # The underflowed cell receives exactly the guarded (zero) contribution.
+    assert grad[0, 0] == 0.0
 
 
 def test_optimiser_lowers_objective_vs_warm_start():

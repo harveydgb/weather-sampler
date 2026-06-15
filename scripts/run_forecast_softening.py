@@ -48,7 +48,25 @@ CONVERGED_INIT_PREFIXES = (
 SPREAD_SUFFIXES = ("_lo", "_hi")
 
 # AE step-0 reconstruction anchor (gmm_era5_32ep_v3 me31; log.md): median max-pi.
+# Canonical fallback value only -- the figure reads it live from the AE artifact
+# (`ae_anchor_max_pi`) so the star can never drift from the emitted GMM. The
+# artifact computes 0.96549, which is exactly the canonical 0.965 at 3 dp.
 AE_ANCHOR_MAX_PI = 0.965
+AE_NPZ = DATA_DIR / "phase_4_real_2t.npz"
+
+
+def ae_anchor_max_pi(ae_npz=AE_NPZ, fallback=AE_ANCHOR_MAX_PI):
+    """Median max-pi of the AE step-0 reconstruction, read from its artifact.
+
+    Returns the canonical `fallback` (0.965) when the AE npz is absent, so the
+    figure still renders on a partial tree. Provenance over a magic literal.
+    """
+
+    ae_npz = Path(ae_npz)
+    if not ae_npz.exists():
+        return fallback
+    data = load_real_marginal(ae_npz)
+    return float(softening_metrics(data["pi"], data["mu"], data["sigma"])["median_max_pi"])
 
 
 def _lead_files(data_dir, prefix):
@@ -225,6 +243,8 @@ def main():
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument("--out-csv", type=Path, default=RUN_DIR / "softening_by_lead.csv")
     parser.add_argument("--fig", type=Path, default=FIG_DIR / "phase_4_forecast_softening.png")
+    parser.add_argument("--ae-npz", type=Path, default=AE_NPZ,
+                        help="AE step-0 reconstruction npz for the lead-0 anchor star")
     parser.add_argument("--no-fig", action="store_true", help="skip the figure (CSV only)")
     args = parser.parse_args()
 
@@ -255,7 +275,7 @@ def main():
     print(f"[softening] wrote {out_csv} ({len(rows)} rows)")
     _print_table(rows)
     if not args.no_fig:
-        make_figure(rows, args.fig)
+        make_figure(rows, args.fig, ae_anchor=ae_anchor_max_pi(args.ae_npz))
         print(f"[softening] wrote {args.fig}")
 
 
