@@ -132,6 +132,7 @@ def write_forecast_marginals(obj, out_dir, prefix=None):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     incoming_run_id = obj.get("from_run_id")
+    incoming_init = obj.get("target_datetime")
     written = []
     for k in sorted(steps, key=lambda kk: int(kk)):
         step = steps[k]
@@ -139,22 +140,29 @@ def write_forecast_marginals(obj, out_dir, prefix=None):
 
         # Provenance guard: the runner defaults to a fixed prefix
         # (DEFAULT_PREFIX) regardless of --forecast-pt, so converting a second
-        # run (e.g. v2/me7) into the same prefix would silently overwrite the
-        # first run's per-lead npz. Refuse to clobber an existing lead whose
-        # meta carries a different `from_run_id`; re-converting the same run is
-        # allowed (idempotent overwrite). Use a distinct --prefix per run.
+        # run into the same prefix would silently overwrite the first run's
+        # per-lead npz. Key the guard on the (from_run_id, init_datetime) PAIR,
+        # not from_run_id alone: the multi-init replicates of one trained model
+        # (F1 track-2) share from_run_id and differ only by init_datetime, so a
+        # run-id-only guard would not catch an init-vs-init clobber. Refuse to
+        # overwrite an existing lead whose meta carries a different pair;
+        # re-converting the same run+init is allowed (idempotent overwrite).
+        # Use a distinct --prefix per init.
         existing_meta = out_dir / f"{stem}_meta.json"
         if existing_meta.exists():
             try:
-                prior_run_id = json.loads(existing_meta.read_text()).get("from_run_id")
+                prior = json.loads(existing_meta.read_text())
+                prior_run_id = prior.get("from_run_id")
+                prior_init = prior.get("init_datetime")
             except (ValueError, OSError):
-                prior_run_id = None
-            if prior_run_id != incoming_run_id:
+                prior_run_id = prior_init = None
+            if (prior_run_id, prior_init) != (incoming_run_id, incoming_init):
                 raise FileExistsError(
                     f"{existing_meta.name} already exists from a different run "
-                    f"(from_run_id={prior_run_id!r}); refusing to overwrite with "
-                    f"from_run_id={incoming_run_id!r}. Pass a distinct --prefix "
-                    f"per run (current prefix={prefix!r})."
+                    f"(from_run_id={prior_run_id!r}, init_datetime={prior_init!r}); "
+                    f"refusing to overwrite with from_run_id={incoming_run_id!r}, "
+                    f"init_datetime={incoming_init!r}. Pass a distinct --prefix per "
+                    f"init (current prefix={prefix!r})."
                 )
 
         arrays = forecast_step_to_marginal(step)

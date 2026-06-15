@@ -84,8 +84,14 @@ def build_macros(soft_rows, lambda_stars, faith_rows, m4_ops, ae):
     `ae`: `{"lambda_star": float|None, "beta": float|None}`.
     """
 
-    soft = {(r["run"], int(r["step"])): r for r in soft_rows}
-    faith = {(r["run"], int(r["step"])): r for r in faith_rows}
+    # Headline point macros use the single-init rows only (6ep, and the canonical
+    # 14ep init A). The across-init `kind='init_mean'` aggregate rows are surfaced
+    # separately by build_softening/faithfulness_spread_macros, so the published
+    # single-init headline numbers never move when replicate inits are added.
+    soft = {(r["run"], int(r["step"])): r for r in soft_rows
+            if r.get("kind", "single") == "single"}
+    faith = {(r["run"], int(r["step"])): r for r in faith_rows
+             if r.get("kind", "single") == "single"}
     macros = {}
 
     for hour, step in HOUR_STEP.items():
@@ -139,7 +145,11 @@ def _lead_label(step, soft_rows):
 
 
 def build_pi_softening_table(soft_rows):
-    soft = {(r["run"], int(r["step"])): r for r in soft_rows}
+    # Single-init rows only: the table's conv. column stays the canonical init A
+    # point estimate (the across-init range is surfaced via the spread macros and
+    # prose, not by silently swapping the table to the 3-init mean).
+    soft = {(r["run"], int(r["step"])): r for r in soft_rows
+            if r.get("kind", "single") == "single"}
     steps = _steps_union(soft_rows)
     head = [
         r"\begin{tabular}{lcccccc}",
@@ -204,7 +214,9 @@ def build_lambda_table(lambda_stars, soft_rows):
 
 
 def build_faithfulness_table(faith_rows, soft_rows):
-    faith = {(r["run"], int(r["step"])): r for r in faith_rows}
+    # Single-init rows only (canonical init A); see build_pi_softening_table.
+    faith = {(r["run"], int(r["step"])): r for r in faith_rows
+             if r.get("kind", "single") == "single"}
     steps = _steps_union(faith_rows) or _steps_union(soft_rows)
     head = [
         r"\begin{tabular}{lcccccc}",
@@ -410,6 +422,67 @@ def build_bootstrap_macros(recon, fc):
     return macros
 
 
+# ------------------------------------------------ F1 track-2 across-init spread
+# The headline point macros (built above) stay pinned to the canonical single
+# init A. These builders add the across-init MEAN + min-max RANGE companions from
+# the `kind='init_mean'` aggregate rows the runners now emit, so the report can
+# state the softening trend's robustness over the three autumn-2023 synoptic
+# cases without moving any single-init number. Range over a few cases, not a CI.
+
+def _maybe_num(value):
+    return None if value is None or value == "" else value
+
+
+def _mean_lo_hi(macros, base, row, key, fmt):
+    macros[f"{base}Mean"] = fmt(_maybe_num(row[key])) if row else PLACEHOLDER
+    macros[f"{base}Lo"] = fmt(_maybe_num(row.get(f"{key}_lo"))) if row else PLACEHOLDER
+    macros[f"{base}Hi"] = fmt(_maybe_num(row.get(f"{key}_hi"))) if row else PLACEHOLDER
+
+
+def build_softening_spread_macros(soft_rows):
+    """Pure: `kind='init_mean'` softening rows -> across-init Mean/Lo/Hi macros.
+
+    For the two headline leads (+6h = step 1, +48h = step 8) of the Converged
+    column, emits `{maxPi,oneHot,secondModeMass}{Hour}Converged{Mean,Lo,Hi}` plus
+    `softeningNInits`. Reads only the aggregate rows; absent -> placeholders.
+    """
+
+    means = {int(r["step"]): r for r in soft_rows if r.get("kind") == "init_mean"}
+    macros = {}
+    n_inits = None
+    for hour, step in HOUR_STEP.items():
+        row = means.get(step)
+        if row is not None and n_inits is None:
+            n_inits = row.get("n_inits")
+        _mean_lo_hi(macros, f"maxPi{hour}Converged", row, "median_max_pi", fmt_pi)
+        _mean_lo_hi(macros, f"oneHot{hour}Converged", row, "one_hot_fraction", fmt_pct)
+        _mean_lo_hi(macros, f"secondModeMass{hour}Converged", row, "median_second_mode", fmt_pi)
+    macros["softeningNInits"] = str(int(n_inits)) if n_inits else PLACEHOLDER
+    return macros
+
+
+def build_faithfulness_spread_macros(faith_rows):
+    """Pure: `kind='init_mean'` faithfulness rows -> across-init Mean/Lo/Hi macros.
+
+    For the +48h headline lead of the Converged column, emits the across-init
+    range of lambda*, do-no-harm delta CRPS, M1 central-90% coverage and M1
+    marginal-position PIT-KS, plus `faithfulnessNInits`. Aggregate absent ->
+    placeholders.
+    """
+
+    means = {int(r["step"]): r for r in faith_rows if r.get("kind") == "init_mean"}
+    row = means.get(HEADLINE_STEP)
+    macros = {}
+    _mean_lo_hi(macros, "forecastLambdaStarConverged", row, "lambda_star", fmt_lambda)
+    _mean_lo_hi(macros, "deltaCrpsConverged", row, "iid_delta_crps", fmt_delta)
+    _mean_lo_hi(macros, "m1Cov90Converged", row, "m1_star_cov90", fmt_cov)
+    _mean_lo_hi(macros, "m1PitKsConverged", row, "m1_star_pit_ks", fmt_cov)
+    macros["faithfulnessNInits"] = (
+        str(int(row["n_inits"])) if row and row.get("n_inits") else PLACEHOLDER
+    )
+    return macros
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -444,6 +517,9 @@ def main():
     fc_boot = _bootstrap_frac_ci(args.runs_dir / "phase_4_fc48_6ep_step8",
                                  ("global", "bimodal"))
     macros = {**macros, **build_bootstrap_macros(recon_boot, fc_boot)}
+    # F1 track-2: across-init mean + min-max range for the Converged column.
+    macros = {**macros, **build_softening_spread_macros(soft_rows),
+              **build_faithfulness_spread_macros(faith_rows)}
     tables = {
         "pi_softening.tex": build_pi_softening_table(soft_rows),
         "lambda_calibration.tex": build_lambda_table(lambda_stars, soft_rows),

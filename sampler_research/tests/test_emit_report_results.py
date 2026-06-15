@@ -154,6 +154,84 @@ def test_build_bootstrap_macros_placeholders_when_absent():
     assert macros["bootstrapNDraws"] == "2000"
 
 
+# ---------------------------------------------- F1 track-2 across-init spread
+SOFT_MEAN = [
+    {"run": "14ep", "step": 1, "lead_hours": 6.0, "kind": "init_mean", "n_inits": 3,
+     "median_max_pi": 0.942, "median_max_pi_lo": 0.937, "median_max_pi_hi": 0.946,
+     "one_hot_fraction": 0.66, "one_hot_fraction_lo": 0.64, "one_hot_fraction_hi": 0.68,
+     "median_second_mode": 0.045, "median_second_mode_lo": 0.043, "median_second_mode_hi": 0.047},
+    {"run": "14ep", "step": 8, "lead_hours": 48.0, "kind": "init_mean", "n_inits": 3,
+     "median_max_pi": 0.769, "median_max_pi_lo": 0.766, "median_max_pi_hi": 0.776,
+     "one_hot_fraction": 0.10, "one_hot_fraction_lo": 0.09, "one_hot_fraction_hi": 0.11,
+     "median_second_mode": 0.176, "median_second_mode_lo": 0.170, "median_second_mode_hi": 0.180},
+]
+FAITH_MEAN = [
+    {"run": "14ep", "step": 8, "kind": "init_mean", "n_inits": 3,
+     "lambda_star": 84.0, "lambda_star_lo": 81.3, "lambda_star_hi": 88.0,
+     "iid_delta_crps": -0.00001, "iid_delta_crps_lo": -0.00005, "iid_delta_crps_hi": 0.00003,
+     "m1_star_cov90": 0.989, "m1_star_cov90_lo": 0.986, "m1_star_cov90_hi": 0.990,
+     "m1_star_pit_ks": 0.309, "m1_star_pit_ks_lo": 0.305, "m1_star_pit_ks_hi": 0.312},
+]
+
+
+def test_build_softening_spread_macros_emits_mean_and_range():
+    m = _load()
+    macros = m.build_softening_spread_macros(SOFT + SOFT_MEAN)
+    assert macros["maxPiFortyEightConvergedMean"] == "0.769"
+    assert macros["maxPiFortyEightConvergedLo"] == "0.766"
+    assert macros["maxPiFortyEightConvergedHi"] == "0.776"
+    assert macros["maxPiSixHourConvergedMean"] == "0.942"
+    assert macros["oneHotFortyEightConvergedLo"] == r"9.0\%"
+    assert macros["secondModeMassFortyEightConvergedHi"] == "0.180"
+    assert macros["softeningNInits"] == "3"
+
+
+def test_build_faithfulness_spread_macros_emits_headline_range():
+    m = _load()
+    macros = m.build_faithfulness_spread_macros(FAITH + FAITH_MEAN)
+    assert macros["forecastLambdaStarConvergedMean"] == "84.0"
+    assert macros["forecastLambdaStarConvergedLo"] == "81.3"
+    assert macros["forecastLambdaStarConvergedHi"] == "88.0"
+    assert macros["m1Cov90ConvergedHi"] == "0.990"
+    assert macros["m1PitKsConvergedLo"] == "0.305"
+    assert macros["deltaCrpsConvergedMean"].startswith(("+", "-"))  # signed delta
+    assert macros["faithfulnessNInits"] == "3"
+
+
+def test_tables_ignore_init_mean_rows():
+    """Regression: the conv. table column must stay the canonical init-A point
+    (single row), never silently flip to the 3-init mean when init_mean rows are
+    present in the CSV."""
+    m = _load()
+    pi_tbl = m.build_pi_softening_table(SOFT + SOFT_MEAN)
+    assert "0.766" in pi_tbl          # init A +48h conv. point
+    assert "0.769" not in pi_tbl      # the 3-init mean must NOT appear in the table
+    faith_tbl = m.build_faithfulness_table(FAITH + FAITH_MEAN, SOFT + SOFT_MEAN)
+    assert "0.88" in faith_tbl        # init A cov90 point (0.88), not mean 0.989
+
+
+def test_spread_macros_placeholder_when_no_aggregate():
+    m = _load()
+    soft = m.build_softening_spread_macros(SOFT)  # single rows only -> no init_mean
+    faith = m.build_faithfulness_spread_macros(FAITH)
+    assert soft["maxPiFortyEightConvergedMean"] == m.PLACEHOLDER
+    assert soft["softeningNInits"] == m.PLACEHOLDER
+    assert faith["forecastLambdaStarConvergedLo"] == m.PLACEHOLDER
+    assert faith["faithfulnessNInits"] == m.PLACEHOLDER
+
+
+def test_build_macros_ignores_init_mean_rows():
+    """The init_mean aggregate row for 14ep@8 must NOT displace the single-init
+    headline point (init A) in build_macros."""
+    m = _load()
+    macros = m.build_macros(SOFT + SOFT_MEAN, LAM, FAITH + FAITH_MEAN,
+                            {("6ep", 8): None, ("14ep", 8): 0.37},
+                            {"lambda_star": 93.74, "beta": None})
+    # 0.766 is init A's single-row value; the 3-init mean is 0.769 (must not win)
+    assert macros["maxPiFortyEightConverged"] == "0.766"
+    assert macros["deltaCrpsConverged"] == "+0.002"  # init A single, not the mean
+
+
 def test_m4_operating_beta_pinned_returns_none(tmp_path):
     import numpy as np
     m = _load()

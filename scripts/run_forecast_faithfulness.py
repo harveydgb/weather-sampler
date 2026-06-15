@@ -38,16 +38,35 @@ RUNS_DIR = REPO_ROOT / "outputs" / "runs"
 OUT_DIR = REPO_ROOT / "outputs" / "runs" / "phase_4_forecast_faithfulness"
 FIG_DIR = REPO_ROOT / "outputs" / "figures"
 
-RUN_SPECS = (
-    {"prefix": "phase_4_fc48_6ep", "label": "6ep", "column": "SixEp"},
-    {"prefix": "phase_4_fc48_14ep", "label": "14ep", "column": "Converged"},
+SIXEP_SPEC = {"prefix": "phase_4_fc48_6ep", "label": "6ep", "column": "SixEp"}
+
+# Converged = v2 me7 (14 ep). F1 track-2 replicates: the SAME trained model at
+# three autumn-2023 init dates (distinct synoptic cases, NOT seasons). Canonical
+# init A (first) gives the unchanged single-init headline rows; all present inits
+# feed the across-init mean + range (`kind='init_mean'`).
+CONVERGED_LABEL = "14ep"
+CONVERGED_COLUMN = "Converged"
+CONVERGED_INIT_PREFIXES = (
+    "phase_4_fc48_14ep",                # init A: 2023-11-01T00:00 (canonical/headline)
+    "phase_4_fc48_v2_init20231010T12",  # init B: 2023-10-10T12:00
+    "phase_4_fc48_v2_init20231215",     # init C: 2023-12-15T00:00
 )
 N_MEMBERS = 50
-CSV_FIELDS = (
-    "run", "column", "prefix", "step", "lead_hours", "lambda_star",
+
+BASE_FIELDS = ("run", "column", "prefix", "kind", "n_inits", "init_datetime",
+               "step", "lead_hours")
+METRIC_FIELDS = (
+    "lambda_star",
     "iid_delta_crps", "iid_ensemble_crps", "iid_analytic_crps", "iid_pit_ks", "iid_n_members",
     "m1_star_pit_ks", "m1_star_cov50", "m1_star_cov90", "m1_star_mean_abs_pit_centre",
     "m1_star_nll_over_n",
+)
+# Report-quoted metrics that get an across-init min-max range (lambda*, do-no-harm
+# delta CRPS, M1 marginal-position PIT-KS, M1 central-90% coverage).
+FAITH_SPREAD_KEYS = ("lambda_star", "iid_delta_crps", "m1_star_pit_ks", "m1_star_cov90")
+CSV_FIELDS = (
+    BASE_FIELDS + METRIC_FIELDS
+    + tuple(f"{k}{s}" for k in FAITH_SPREAD_KEYS for s in ("_lo", "_hi"))
 )
 
 
@@ -134,6 +153,82 @@ def faithfulness_for_lead(data_npz, run_dir, *, n_members, seed):
     return row, npz_payload
 
 
+def _num(value):
+    """Coerce a CSV/metric value to a finite float, else None (skipped in means)."""
+
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if np.isfinite(f) else None
+
+
+def rows_for_prefix(prefix, label, column, kind, *, data_dir, runs_dir, n_members, seed):
+    """Per-lead faithfulness rows + figure payloads for one init prefix.
+
+    Reads each lead's converted npz + persisted sampler run dir
+    (`{prefix}_step{k}`). Returns `(rows, fig_rows, payloads)`; `rows` is empty
+    if no per-lead npz exist for the prefix (a not-yet-run init is skipped).
+    """
+
+    rows, fig_rows, payloads = [], [], {}
+    for step, npz in _lead_files(data_dir, prefix):
+        run_dir = runs_dir / f"{prefix}_step{step}"
+        if not run_dir.exists():
+            print(f"[faithfulness] missing run dir {run_dir}; run the per-lead audit first")
+            continue
+        meta = json.loads(npz.with_name(npz.stem + "_meta.json").read_text())
+        row, payload = faithfulness_for_lead(npz, run_dir, n_members=n_members, seed=seed + step)
+        row = {"run": label, "column": column, "prefix": prefix, "kind": kind,
+               "n_inits": 1, "init_datetime": meta.get("init_datetime"),
+               "step": step, "lead_hours": meta.get("lead_hours", 6.0 * step), **row}
+        np.savez(run_dir / "faithfulness.npz", **payload)
+        rows.append(row)
+        fig_rows.append(row)
+        payloads[step] = payload
+        print(f"[faithfulness] {label} {prefix} +{row['lead_hours']:g}h: "
+              f"iid dCRPS={row['iid_delta_crps']:+.4f} iid PIT-KS={row['iid_pit_ks']:.4f} "
+              f"M1* cov90={row['m1_star_cov90']:.3f} PIT-KS={row['m1_star_pit_ks']:.3f}")
+    return rows, fig_rows, payloads
+
+
+def aggregate_converged_faith(per_init):
+    """Across-init MEAN of every metric + min-max range for the report metrics.
+
+    `per_init`: list of (prefix, rows). Emits one `kind='init_mean'` row per lead
+    step: base metric columns hold the mean over the inits, and `{k}_lo`/`{k}_hi`
+    (for `FAITH_SPREAD_KEYS`) the min/max -- a range over a few synoptic cases,
+    not a sampling CI. Fewer than two inits -> [].
+    """
+
+    if len(per_init) < 2:
+        return []
+    by_step = {}
+    for _prefix, rows in per_init:
+        for r in rows:
+            by_step.setdefault(int(r["step"]), []).append(r)
+    out = []
+    for step in sorted(by_step):
+        group = by_step[step]
+        inits = sorted({str(r.get("init_datetime")) for r in group})
+        agg = {"run": CONVERGED_LABEL, "column": CONVERGED_COLUMN,
+               "prefix": f"{CONVERGED_INIT_PREFIXES[0]}+{len(per_init) - 1}",
+               "kind": "init_mean", "n_inits": len(group),
+               "init_datetime": ";".join(inits), "step": step,
+               "lead_hours": group[0]["lead_hours"]}
+        for key in METRIC_FIELDS:
+            vals = [v for v in (_num(r.get(key)) for r in group) if v is not None]
+            if not vals:
+                agg[key] = ""
+                continue
+            agg[key] = sum(vals) / len(vals)
+            if key in FAITH_SPREAD_KEYS:
+                agg[f"{key}_lo"] = min(vals)
+                agg[f"{key}_hi"] = max(vals)
+        out.append(agg)
+    return out
+
+
 def make_figure(rows, payloads, label, fig_path):
     import matplotlib
     matplotlib.use("Agg")
@@ -198,42 +293,52 @@ def main():
     parser.add_argument("--no-fig", action="store_true")
     args = parser.parse_args()
 
-    specs = [s for s in RUN_SPECS if args.prefix is None or s["prefix"] in args.prefix]
+    # (prefix, label, column, kind, make_fig). The 6ep run and the canonical 14ep
+    # init A are the headline single-init rows (kind="single", figures drawn);
+    # converged inits B/C are extra replicates (kind="init", no separate figure)
+    # that only feed the across-init aggregate.
+    plan = [(SIXEP_SPEC["prefix"], SIXEP_SPEC["label"], SIXEP_SPEC["column"], "single", True)]
+    for i, prefix in enumerate(CONVERGED_INIT_PREFIXES):
+        plan.append((prefix, CONVERGED_LABEL, CONVERGED_COLUMN,
+                     "single" if i == 0 else "init", i == 0))
+    if args.prefix is not None:
+        plan = [p for p in plan if p[0] in args.prefix]
+
     all_rows = []
-    for spec in specs:
-        leads = _lead_files(args.data_dir, spec["prefix"])
-        if not leads:
-            print(f"[faithfulness] no per-lead npz for {spec['prefix']!r} in {args.data_dir}")
+    converged_per_init = []
+    for prefix, label, column, kind, make_fig in plan:
+        rows, fig_rows, payloads = rows_for_prefix(
+            prefix, label, column, kind,
+            data_dir=args.data_dir, runs_dir=args.runs_dir,
+            n_members=args.n_members, seed=args.seed,
+        )
+        if not rows:
+            print(f"[faithfulness] no per-lead npz/run dirs for {prefix!r} in {args.data_dir}")
             continue
-        rows_for_fig, payloads_for_fig = [], {}
-        for step, npz in leads:
-            run_dir = args.runs_dir / f"{spec['prefix']}_step{step}"
-            if not run_dir.exists():
-                print(f"[faithfulness] missing run dir {run_dir}; run the per-lead audit first")
-                continue
-            meta = json.loads(npz.with_name(npz.stem + "_meta.json").read_text())
-            row, payload = faithfulness_for_lead(
-                npz, run_dir, n_members=args.n_members, seed=args.seed + step
-            )
-            row = {"run": spec["label"], "column": spec["column"], "prefix": spec["prefix"],
-                   "step": step, "lead_hours": meta.get("lead_hours", 6.0 * step), **row}
-            np.savez(run_dir / "faithfulness.npz", **payload)
-            all_rows.append(row)
-            rows_for_fig.append(row)
-            payloads_for_fig[step] = payload
-            print(f"[faithfulness] {spec['label']} +{row['lead_hours']:g}h: "
-                  f"iid dCRPS={row['iid_delta_crps']:+.4f} iid PIT-KS={row['iid_pit_ks']:.4f} "
-                  f"M1* cov90={row['m1_star_cov90']:.3f} PIT-KS={row['m1_star_pit_ks']:.3f}")
-        if rows_for_fig and not args.no_fig:
-            fig_path = args.fig_dir / f"phase_4_forecast_faithfulness_{spec['label']}.png"
-            make_figure(rows_for_fig, payloads_for_fig, spec["label"], fig_path)
+        all_rows.extend(rows)
+        if column == CONVERGED_COLUMN:
+            converged_per_init.append((prefix, rows))
+        if make_fig and fig_rows and not args.no_fig:
+            fig_path = args.fig_dir / f"phase_4_forecast_faithfulness_{label}.png"
+            make_figure(fig_rows, payloads, label, fig_path)
             print(f"[faithfulness] wrote {fig_path}")
+
+    agg_rows = aggregate_converged_faith(converged_per_init)
+    all_rows.extend(agg_rows)
+    if agg_rows:
+        print(f"[faithfulness] aggregated {len(converged_per_init)} converged inits "
+              f"({', '.join(p for p, _ in converged_per_init)})")
+    elif len(converged_per_init) == 1:
+        print(f"[faithfulness] only one converged init ({converged_per_init[0][0]}); "
+              "no across-init spread yet (rerun B/C to populate it)")
 
     if not all_rows:
         raise SystemExit("no faithfulness rows produced; run conversion + the per-lead audit first")
     Path(args.out_csv).parent.mkdir(parents=True, exist_ok=True)
     with open(args.out_csv, "w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(CSV_FIELDS))
+        # restval="" leaves the spread columns blank on single/init rows (only
+        # the kind='init_mean' aggregate rows carry _lo/_hi).
+        writer = csv.DictWriter(fh, fieldnames=list(CSV_FIELDS), restval="")
         writer.writeheader()
         writer.writerows(all_rows)
     print(f"[faithfulness] wrote {args.out_csv} ({len(all_rows)} rows)")

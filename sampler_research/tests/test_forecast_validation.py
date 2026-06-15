@@ -113,7 +113,7 @@ def test_write_forecast_marginals_distinct_prefixes_no_collision(tmp_path):
 def test_write_forecast_marginals_guards_prefix_collision_across_runs(tmp_path):
     """F2: a second run reusing the same prefix must not silently clobber the
     first run's per-lead npz (the runner defaults to a fixed prefix regardless
-    of --forecast-pt). The guard keys on `from_run_id`."""
+    of --forecast-pt). The guard keys on the (from_run_id, init_datetime) pair."""
     v1 = _good_dict(n_steps=2)
     v1["from_run_id"] = "gmm_fc48_v1"
     write_forecast_marginals(v1, tmp_path, prefix="phase_4_fc48_6ep")
@@ -130,3 +130,31 @@ def test_write_forecast_marginals_guards_prefix_collision_across_runs(tmp_path):
     # Re-converting the SAME run into the same prefix is an allowed overwrite.
     written = write_forecast_marginals(v1, tmp_path, prefix="phase_4_fc48_6ep")
     assert len(written) == 2
+
+
+def test_write_forecast_marginals_guards_init_collision_same_run(tmp_path):
+    """F1 track-2: the multi-init replicates of one trained model share
+    `from_run_id` and differ only by `init_datetime`, so the guard must key on
+    the (from_run_id, init_datetime) pair -- a run-id-only guard would let a
+    second init silently clobber the first under a shared prefix."""
+    init_a = _good_dict(n_steps=2)
+    init_a["from_run_id"] = "gmm_fc48_v2"
+    init_a["target_datetime"] = "2023-11-01T00:00"
+    write_forecast_marginals(init_a, tmp_path, prefix="phase_4_fc48_14ep")
+
+    # Same prefix, SAME run id, DIFFERENT init date -> refuse to overwrite.
+    init_b = _good_dict(n_steps=2)
+    init_b["from_run_id"] = "gmm_fc48_v2"
+    init_b["target_datetime"] = "2023-10-10T12:00"
+    with pytest.raises(FileExistsError, match="init_datetime"):
+        write_forecast_marginals(init_b, tmp_path, prefix="phase_4_fc48_14ep")
+    # init A's provenance on disk is untouched after the refused write.
+    meta = json.loads((tmp_path / "phase_4_fc48_14ep_step1_2t_meta.json").read_text())
+    assert meta["init_datetime"] == "2023-11-01T00:00"
+
+    # init B under its OWN distinct prefix is fine (no collision).
+    written_b = write_forecast_marginals(init_b, tmp_path, prefix="phase_4_fc48_v2_init20231010T12")
+    assert len(written_b) == 2
+    # Re-converting the SAME (run, init) into the same prefix is idempotent.
+    written_a = write_forecast_marginals(init_a, tmp_path, prefix="phase_4_fc48_14ep")
+    assert len(written_a) == 2
