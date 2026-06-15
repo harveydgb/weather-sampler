@@ -75,6 +75,17 @@ def fmt_cov(v):
     return _fmt(v, ".3f")
 
 
+def fmt_sci(v):
+    """Two-sig-fig LaTeX sci-notation, math-mode content (no surrounding $)."""
+    if v is None or (isinstance(v, float) and not np.isfinite(v)):
+        return PLACEHOLDER
+    if v == 0:
+        return "0"
+    exp = int(np.floor(np.log10(abs(v))))
+    mant = v / (10.0 ** exp)
+    return rf"{mant:.1f}\times10^{{{exp}}}"
+
+
 # --------------------------------------------------------------- pure core
 def build_macros(soft_rows, lambda_stars, faith_rows, m4_ops, ae):
     """Map persisted artifacts to the fixed macro set. Pure over plain inputs.
@@ -209,6 +220,14 @@ def build_lambda_table(lambda_stars, soft_rows):
         r"\bottomrule",
         r"\end{tabular}",
         r"% $\dagger$: unbracketed (nearest-row $\lambda^\star$, sweep extended).",
+        r"\par\smallskip",
+        # C1: across-init range footnote, macro-driven (no hand-typed number) and
+        # placeholder-safe -- em-dashes here if the init_mean aggregate is absent.
+        r"{\footnotesize Converged \mbox{+48\,h}~$\lambda^\star$ spans "
+        r"$[\forecastLambdaStarConvergedLo,\forecastLambdaStarConvergedHi]$ "
+        r"(mean~\forecastLambdaStarConvergedMean) across the "
+        r"\faithfulnessNInits\ autumn-2023 initialisations; the tabulated "
+        r"conv.\ value is the canonical case.}",
     ]
     return "\n".join(head + body + tail) + "\n"
 
@@ -327,9 +346,12 @@ def _m4_operating_beta(run_dir, rel_tol=M4_MATCH_REL_TOL):
 
 # ----------------------------------------------------- F1 spatial bootstrap CI
 # Matched-R~ smear-fraction comparison: Method 1 @ lambda* vs the smoothed-MAP
-# blur, both at frac(dNLL/cell > 0.125). The bootstrap resamples cells (spatial,
-# within one field/init) to bracket the single-init point estimate -- it is NOT
-# an across-init CI (that is the GPU-gated track-2 / down-scope; see report F1).
+# blur, both at frac(dNLL/cell > 0.125). The forecast (+48h) comparison is taken
+# on the CONVERGED 14-epoch run (the chapter's final deliverable); the 6ep and
+# step-0 (AE) runs are context columns only and never feed a forecast headline
+# macro. The bootstrap resamples cells (spatial, within one field/init) to
+# bracket the single-init point estimate -- it is NOT an across-init CI (that is
+# the GPU-gated track-2 / down-scope; see report F1).
 BOOT_METHOD = "m1_star"
 BOOT_BLUR = "smoothed_map_n10"
 BOOT_THRESHOLD = 0.125
@@ -475,12 +497,40 @@ def build_faithfulness_spread_macros(faith_rows):
     macros = {}
     _mean_lo_hi(macros, "forecastLambdaStarConverged", row, "lambda_star", fmt_lambda)
     _mean_lo_hi(macros, "deltaCrpsConverged", row, "iid_delta_crps", fmt_delta)
-    _mean_lo_hi(macros, "m1Cov90Converged", row, "m1_star_cov90", fmt_cov)
-    _mean_lo_hi(macros, "m1PitKsConverged", row, "m1_star_pit_ks", fmt_cov)
+    # Macro bases must be letters-only: LaTeX \newcommand names cannot contain
+    # digits, so "m1Cov90"->"mOneCovNinety" and "m1PitKs"->"mOnePitKs".
+    _mean_lo_hi(macros, "mOneCovNinetyConverged", row, "m1_star_cov90", fmt_cov)
+    _mean_lo_hi(macros, "mOnePitKsConverged", row, "m1_star_pit_ks", fmt_cov)
     macros["faithfulnessNInits"] = (
         str(int(row["n_inits"])) if row and row.get("n_inits") else PLACEHOLDER
     )
     return macros
+
+
+def build_crps_extremum_macros(faith_rows):
+    """Pure: worst-case |iid_delta_crps| over CONVERGED single+init rows (C2).
+
+    Scans every converged per-lead, per-init row (`run` == the Converged label,
+    `kind` in {single, init}); the across-init aggregate (`init_mean`) and the
+    6-epoch context column are excluded. Emits `\\deltaCrpsMaxAbs` in
+    sci-notation so the do-no-harm bound can be stated numerically even though
+    the per-lead \\DeltaCRPS\\ rounds to +/-0.000 at three decimals. Empty -> placeholder."""
+
+    converged = COL_TO_LABEL["Converged"]
+    vals = []
+    for r in faith_rows:
+        if r.get("run") != converged or r.get("kind", "single") not in ("single", "init"):
+            continue
+        v = _maybe_num(r.get("iid_delta_crps"))
+        if v is None:
+            continue
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(f):
+            vals.append(abs(f))
+    return {"deltaCrpsMaxAbs": fmt_sci(max(vals)) if vals else PLACEHOLDER}
 
 
 def main():
@@ -512,14 +562,19 @@ def main():
             m4_ops[(label, step)] = _m4_operating_beta(args.runs_dir / f"{prefix}_step{step}")
 
     macros = build_macros(soft_rows, lambda_stars, faith_rows, m4_ops, ae)
-    # F1: spatial-bootstrap CI on the matched-R~ smear-fraction comparison.
+    # F1: spatial-bootstrap CI on the matched-R~ smear-fraction comparison. The
+    # forecast (+48h) comparison is taken on the CONVERGED 14-epoch run -- the
+    # chapter headline. The 6ep / step-0 (AE) runs are training-progression
+    # context only and never feed a forecast headline macro.
     recon_boot = _bootstrap_frac_ci(args.ae_run_dir, ("global", "bimodal"))
-    fc_boot = _bootstrap_frac_ci(args.runs_dir / "phase_4_fc48_6ep_step8",
+    fc_boot = _bootstrap_frac_ci(args.runs_dir / "phase_4_fc48_14ep_step8",
                                  ("global", "bimodal"))
     macros = {**macros, **build_bootstrap_macros(recon_boot, fc_boot)}
     # F1 track-2: across-init mean + min-max range for the Converged column.
     macros = {**macros, **build_softening_spread_macros(soft_rows),
               **build_faithfulness_spread_macros(faith_rows)}
+    # C2: worst-case do-no-harm |dCRPS| over converged single+init rows.
+    macros = {**macros, **build_crps_extremum_macros(faith_rows)}
     tables = {
         "pi_softening.tex": build_pi_softening_table(soft_rows),
         "lambda_calibration.tex": build_lambda_table(lambda_stars, soft_rows),

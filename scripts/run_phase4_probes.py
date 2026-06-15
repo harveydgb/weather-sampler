@@ -6,6 +6,16 @@ after `scripts/run_phase4_real.py` (all stages + --lambda-star):
 
     .venv/bin/python scripts/run_phase4_probes.py
 
+For a converged forecast run, the lambda* seed-stability probe alone (CPU-only,
+no model inference) runs under --seed-stability-only: it reads the run-specific
+restart_scale from that run's lambda_star.json (NOT the AE 0.15), loads the
+shared o96 kNN graph for edges, and writes a robustness_probes.json holding only
+that one block into the run dir:
+
+    .venv/bin/python scripts/run_phase4_probes.py --seed-stability-only \
+        --run-dir outputs/runs/phase_4_fc48_14ep_step8 \
+        --data-npz outputs/data/phase_4_fc48_14ep_step8_2t.npz
+
 Reads the persisted run artifacts (masks/modes/anchors/method1_sweep/
 lambda_star) plus the converted real npz; writes ONE small JSON artifact and
 touches nothing else. Probes (review findings in brackets):
@@ -35,6 +45,7 @@ touches nothing else. Probes (review findings in brackets):
                       unit-weight metric so both sides share one convention.
 """
 
+import argparse
 import json
 import time
 from pathlib import Path
@@ -61,6 +72,7 @@ from sampler_research.regularised_map import minimise_at_lambda
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_NPZ = REPO_ROOT / "outputs" / "data" / "phase_4_real_2t.npz"
 RUN_DIR = REPO_ROOT / "outputs" / "runs" / "phase_4_real"
+GRAPH_NPZ = REPO_ROOT / "outputs" / "runs" / "o96_knn_k8_graph.npz"
 
 # Production Method 1 / Method 4 settings (mirrors scripts/run_phase4_real.py).
 N_RESTARTS = 4
@@ -80,11 +92,11 @@ WEIGHTED_LAMBDAS = ((30.0, 4), (100.0, 5), (300.0, 6))
 WEIGHTED_STAR_SEED = 200  # mirrors the runner's sensitivity-solve seed
 
 
-def _solve_m1(data, lam, seed, laplacian, edges):
+def _solve_m1(data, lam, seed, laplacian, edges, restart_scale=RESTART_SCALE):
     return minimise_at_lambda(
         data["pi"], data["mu"], data["sigma"], lam,
         n_restarts=N_RESTARTS, n_steps=N_STEPS, lr=LR,
-        restart_scale=RESTART_SCALE, rng=np.random.default_rng(seed),
+        restart_scale=restart_scale, rng=np.random.default_rng(seed),
         laplacian=laplacian, edges=edges,
     )
 
@@ -128,13 +140,14 @@ def probe_m4_beta_scale(data, extraction, edges):
     return out
 
 
-def probe_lambda_star_seed_stability(data, edges, laplacian, sweep, star):
+def probe_lambda_star_seed_stability(data, edges, laplacian, sweep, star,
+                                     restart_scale=RESTART_SCALE):
     target = float(star["target_r_tilde"])
     out = {
         "base_lambda_star": float(star["lambda_star"]),
         "resolved_lambdas": sorted(BASE_ROW_SEEDS),
         "settings": {"n_restarts": N_RESTARTS, "n_steps": N_STEPS, "lr": LR,
-                     "restart_scale": RESTART_SCALE},
+                     "restart_scale": restart_scale},
         "offsets": {},
     }
     for offset in SEED_OFFSETS:
@@ -142,7 +155,8 @@ def probe_lambda_star_seed_stability(data, edges, laplacian, sweep, star):
         collapsed = np.array(sweep["variance_collapsed"], dtype=bool)
         valid = np.array(sweep["warm_start_sane"], dtype=bool)
         for lam, base_seed in BASE_ROW_SEEDS.items():
-            res = _solve_m1(data, lam, base_seed + offset, laplacian, edges)
+            res = _solve_m1(data, lam, base_seed + offset, laplacian, edges,
+                            restart_scale=restart_scale)
             row = int(np.flatnonzero(np.isclose(sweep["lambdas"], lam))[0])
             r_tildes[row] = res.r_tilde
             collapsed[row] = res.variance_collapsed
@@ -268,19 +282,20 @@ def probe_weighted_graph(data, edges, modes):
     return out
 
 
-def main():
+def _run_full_ae(run_dir, data_npz):
+    """All five AE-regime probes -> run_dir/robustness_probes.json."""
     t0 = time.perf_counter()
-    data = load_real_marginal(DATA_NPZ)
-    with np.load(RUN_DIR / "masks.npz") as f:
+    data = load_real_marginal(data_npz)
+    with np.load(run_dir / "masks.npz") as f:
         edges = f["edges"]
-    with np.load(RUN_DIR / "modes.npz") as f:
+    with np.load(run_dir / "modes.npz") as f:
         modes = {k: f[k] for k in f.files}
     extraction = ModeExtraction(
         mode_values=modes["mode_values"], valid_mask=modes["valid_mask"],
         mode_unary=modes["mode_unary"], mode_counts=modes["mode_counts"],
     )
-    sweep = dict(np.load(RUN_DIR / "method1_sweep.npz"))
-    star = json.loads((RUN_DIR / "lambda_star.json").read_text())
+    sweep = dict(np.load(run_dir / "method1_sweep.npz"))
+    star = json.loads((run_dir / "lambda_star.json").read_text())
     laplacian = sparse_laplacian(data["pi"].shape[0], edges)
 
     probes = {
@@ -294,9 +309,58 @@ def main():
         "wall_s": None,
     }
     probes["wall_s"] = round(time.perf_counter() - t0, 1)
-    out_path = RUN_DIR / "robustness_probes.json"
+    out_path = run_dir / "robustness_probes.json"
     out_path.write_text(json.dumps(probes, indent=2) + "\n")
     print(f"wrote {out_path} ({probes['wall_s']} s)")
+
+
+def _run_seed_stability_only(run_dir, data_npz, graph_npz):
+    """Forecast mode: only the lambda* seed-stability probe (CPU-only).
+
+    Threads the run-specific restart_scale (read from the run's lambda_star.json,
+    NOT the AE default 0.15) into the Method-1 re-solves, and takes edges from the
+    SHARED o96 kNN graph. Writes a robustness_probes.json holding only the
+    lambda_star_seed_stability block, so make_phase4_figures.fig_robustness keeps
+    skipping gracefully on runs where the other probes are absent."""
+    t0 = time.perf_counter()
+    data = load_real_marginal(data_npz)
+    with np.load(graph_npz) as f:
+        edges = f["edges"]
+    sweep = dict(np.load(run_dir / "method1_sweep.npz"))
+    star = json.loads((run_dir / "lambda_star.json").read_text())
+    restart_scale = float(star["restart_scale"])
+    laplacian = sparse_laplacian(data["pi"].shape[0], edges)
+    print(f"[seed-stability] {run_dir.name}: lambda*={float(star['lambda_star']):.2f}, "
+          f"restart_scale={restart_scale:.4f} (run-specific; AE default is {RESTART_SCALE})")
+    probes = {
+        "lambda_star_seed_stability": probe_lambda_star_seed_stability(
+            data, edges, laplacian, sweep, star, restart_scale=restart_scale
+        ),
+        "wall_s": None,
+    }
+    probes["wall_s"] = round(time.perf_counter() - t0, 1)
+    out_path = run_dir / "robustness_probes.json"
+    out_path.write_text(json.dumps(probes, indent=2) + "\n")
+    print(f"wrote {out_path} ({probes['wall_s']} s)")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
+    parser.add_argument("--data-npz", type=Path, default=DATA_NPZ)
+    parser.add_argument("--graph-npz", type=Path, default=GRAPH_NPZ,
+                        help="shared kNN graph (edges) used in seed-stability mode")
+    parser.add_argument("--seed-stability-only", action="store_true",
+                        help="forecast mode: run only the lambda* seed-stability "
+                             "probe, reading the run-specific restart_scale from "
+                             "the run's lambda_star.json")
+    args = parser.parse_args()
+    if args.seed_stability_only:
+        _run_seed_stability_only(args.run_dir, args.data_npz, args.graph_npz)
+    else:
+        _run_full_ae(args.run_dir, args.data_npz)
 
 
 if __name__ == "__main__":

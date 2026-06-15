@@ -4,8 +4,15 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "emit_report_results.py"
+FC_CONVERGED_RUN = REPO_ROOT / "outputs" / "runs" / "phase_4_fc48_14ep_step8"
+needs_fc_converged = pytest.mark.skipif(
+    not (FC_CONVERGED_RUN / "delta_per_cell.npz").exists(),
+    reason="converged +48h forecast run artifact absent",
+)
 
 
 def _load():
@@ -89,6 +96,9 @@ def test_tables_render_rows_and_dagger():
     lam_tbl = m.build_lambda_table(LAM, SOFT)
     assert "120.5" in lam_tbl
     assert r"$^{\dagger}$" in lam_tbl  # 14ep@8 is unbracketed in the fixture
+    # C1: across-init range footnote is macro-driven (not a hand-typed number).
+    assert r"\forecastLambdaStarConvergedLo" in lam_tbl
+    assert r"\forecastLambdaStarConvergedHi" in lam_tbl
     faith_tbl = m.build_faithfulness_table(FAITH, SOFT)
     assert "-0.004" in faith_tbl and "+0.002" in faith_tbl
 
@@ -154,6 +164,27 @@ def test_build_bootstrap_macros_placeholders_when_absent():
     assert macros["bootstrapNDraws"] == "2000"
 
 
+@needs_fc_converged
+def test_forecast_bootstrap_pins_converged_bimodal_gap():
+    """A2 guard: the +48h forecast smear-fraction comparison must be computed on
+    the CONVERGED 14-epoch run, never the 6-epoch context column. Replays the
+    persisted delta_per_cell.npz + masks.npz through `_bootstrap_frac_ci` at the
+    production seed and pins the bimodal gap + spatial-bootstrap CI to that
+    artifact. The 6ep run returns gap ~ -0.096; the converged run returns -0.103,
+    so the tight tolerance below fails if the call site silently reverts (the
+    golden round-trip F2 then also fails, since the committed -0.103 no longer
+    reproduces)."""
+    m = _load()
+    out = m._bootstrap_frac_ci(FC_CONVERGED_RUN, ("global", "bimodal"))
+    gap = out["bimodal"]["gap"]
+    assert gap["point"] == pytest.approx(-0.103, abs=2e-3)
+    assert gap["lo"] == pytest.approx(-0.117, abs=2e-3)
+    assert gap["hi"] == pytest.approx(-0.088, abs=2e-3)
+    # method/blur point estimates also lock to the converged artifact.
+    assert out["bimodal"]["m1"]["point"] == pytest.approx(0.090, abs=2e-3)
+    assert out["bimodal"]["blur"]["point"] == pytest.approx(0.193, abs=2e-3)
+
+
 # ---------------------------------------------- F1 track-2 across-init spread
 SOFT_MEAN = [
     {"run": "14ep", "step": 1, "lead_hours": 6.0, "kind": "init_mean", "n_inits": 3,
@@ -192,8 +223,8 @@ def test_build_faithfulness_spread_macros_emits_headline_range():
     assert macros["forecastLambdaStarConvergedMean"] == "84.0"
     assert macros["forecastLambdaStarConvergedLo"] == "81.3"
     assert macros["forecastLambdaStarConvergedHi"] == "88.0"
-    assert macros["m1Cov90ConvergedHi"] == "0.990"
-    assert macros["m1PitKsConvergedLo"] == "0.305"
+    assert macros["mOneCovNinetyConvergedHi"] == "0.990"
+    assert macros["mOnePitKsConvergedLo"] == "0.305"
     assert macros["deltaCrpsConvergedMean"].startswith(("+", "-"))  # signed delta
     assert macros["faithfulnessNInits"] == "3"
 
@@ -242,3 +273,69 @@ def test_m4_operating_beta_pinned_returns_none(tmp_path):
              nll_over_n=np.array([-1.6, -1.6]))
     (tmp_path / "scores.csv").write_text("name,r_tilde\nm1_star,0.0031\n")
     assert m._m4_operating_beta(tmp_path) is None
+
+
+# ------------------------------------------------------ C2 dCRPS extremum macro
+def test_build_crps_extremum_macros_max_over_converged_single_and_init():
+    """Worst-case |dCRPS| over converged single+init rows, in sci-notation; the
+    6ep context column and the init_mean aggregate are excluded."""
+    m = _load()
+    rows = [
+        {"run": "6ep", "kind": "single", "iid_delta_crps": -0.5},      # 6ep -> ignored
+        {"run": "14ep", "kind": "single", "iid_delta_crps": 3.0e-5},
+        {"run": "14ep", "kind": "init", "iid_delta_crps": -9.5e-5},    # worst |.|
+        {"run": "14ep", "kind": "init_mean", "iid_delta_crps": -0.9},  # aggregate -> ignored
+    ]
+    macros = m.build_crps_extremum_macros(rows)
+    assert macros["deltaCrpsMaxAbs"] == r"9.5\times10^{-5}"
+
+
+def test_build_crps_extremum_macros_placeholder_when_absent():
+    m = _load()
+    assert m.build_crps_extremum_macros([])["deltaCrpsMaxAbs"] == m.PLACEHOLDER
+    # only 6ep / init_mean rows present -> still a placeholder (no eligible row)
+    rows = [{"run": "6ep", "kind": "single", "iid_delta_crps": -1.0},
+            {"run": "14ep", "kind": "init_mean", "iid_delta_crps": -1.0}]
+    assert m.build_crps_extremum_macros(rows)["deltaCrpsMaxAbs"] == m.PLACEHOLDER
+
+
+def test_fmt_sci_two_sig_figs_and_placeholder():
+    m = _load()
+    assert m.fmt_sci(9.4556e-5) == r"9.5\times10^{-5}"
+    assert m.fmt_sci(-1.2e-3) == r"-1.2\times10^{-3}"
+    assert m.fmt_sci(0) == "0"
+    assert m.fmt_sci(None) == m.PLACEHOLDER
+    assert m.fmt_sci(float("nan")) == m.PLACEHOLDER
+
+
+# ----------------------------------------------------- F2 golden round-trip
+_SOFT_CSV = REPO_ROOT / "outputs" / "runs" / "phase_4_forecast_softening" / "softening_by_lead.csv"
+_FAITH_CSV = REPO_ROOT / "outputs" / "runs" / "phase_4_forecast_faithfulness" / "faithfulness_by_lead.csv"
+_COMMITTED = REPO_ROOT / "report" / "construction"
+needs_emit_artifacts = pytest.mark.skipif(
+    not (_SOFT_CSV.exists() and _FAITH_CSV.exists()
+         and (_COMMITTED / "macros-results.tex").exists()),
+    reason="emit artifacts or committed report dir absent",
+)
+
+
+@needs_emit_artifacts
+def test_emit_golden_roundtrip_matches_committed(tmp_path):
+    """F2: emit into a tmp report-dir from the committed artifacts and assert the
+    output is byte-identical to the in-repo macros + tables. Locks the 'no Ch 5
+    number typed by hand' guarantee -- a hand-edit to macros-results.tex, or any
+    drift between the emit source and its committed output, fails here."""
+    m = _load()
+    out = tmp_path / "construction"
+    out.mkdir(parents=True, exist_ok=True)  # main() writes macros before mkdir
+    saved = sys.argv
+    sys.argv = ["emit_report_results.py", "--report-dir", str(out)]
+    try:
+        m.main()
+    finally:
+        sys.argv = saved
+    assert (out / "macros-results.tex").read_text() == \
+        (_COMMITTED / "macros-results.tex").read_text()
+    for name in ("pi_softening.tex", "lambda_calibration.tex", "faithfulness.tex"):
+        assert (out / "tables" / name).read_text() == \
+            (_COMMITTED / "tables" / name).read_text(), name
