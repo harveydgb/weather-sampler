@@ -41,7 +41,9 @@ FIG_DIR = REPO_ROOT / "outputs" / "figures"
 SIXEP_SPEC = {"prefix": "phase_4_fc48_6ep", "label": "6ep", "column": "SixEp"}
 
 # Converged = v2 me7 (14 ep). F1 track-2 replicates: the SAME trained model at the
-# twelve first-of-month 2023 init dates (distinct synoptic cases, NOT seasons).
+# twelve first-of-month 2023 init dates (one synoptic case per month, spanning all
+# four calendar seasons; a descriptive span only -- seasonal/global generality
+# stays a non-claim, n=1/month, single year).
 # Canonical init A (= 2023-11-01) gives the unchanged single-init headline rows;
 # all present inits feed the across-init mean + range (`kind='init_mean'`).
 CONVERGED_LABEL = "14ep"

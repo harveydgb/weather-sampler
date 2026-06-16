@@ -232,7 +232,7 @@ def build_lambda_table(lambda_stars, soft_rows):
         r"{\footnotesize Converged \mbox{+48\,h}~$\lambda^\star$ spans "
         r"$[\forecastLambdaStarConvergedLo,\forecastLambdaStarConvergedHi]$ "
         r"(mean~\forecastLambdaStarConvergedMean) across the "
-        r"\faithfulnessNInits\ autumn-2023 initialisations; the tabulated "
+        r"\faithfulnessNInits\ first-of-month 2023 initialisations; the tabulated "
         r"conv.\ value is the canonical case.}",
     ]
     return "\n".join(head + body + tail) + "\n"
@@ -551,7 +551,7 @@ def build_bootstrap_macros(recon, fc):
 # The headline point macros (built above) stay pinned to the canonical single
 # init A. These builders add the across-init MEAN + min-max RANGE companions from
 # the `kind='init_mean'` aggregate rows the runners now emit, so the report can
-# state the softening trend's robustness over the three autumn-2023 synoptic
+# state the softening trend's robustness over the twelve first-of-month 2023 synoptic
 # cases without moving any single-init number. Range over a few cases, not a CI.
 
 def _maybe_num(value):
@@ -687,6 +687,40 @@ def build_comparison_gap_macros(gap_means):
     return macros
 
 
+# ------------------------------------------------ where the multimodal cells live
+# I5 (audit): the geography of the well-separated (>2 sigma) bimodal cells, read
+# STRICTLY from the FORECAST-regime +48h step-8 masks.npz (NOT the reconstruction
+# audit, a different regime). bimodal = the >2 sigma well-separated subset; the
+# lat_* masks are the disjoint polar/mid/tropics bands. Emits the tropical share
+# and tropics-vs-global enrichment so any geography stated in prose is macro-driven.
+def build_bimodal_geography_macros(run_dir):
+    """Pure-ish: forecast +48h masks.npz -> tropical share + enrichment of the
+    >2 sigma bimodal cells. Missing file/keys -> placeholders (never raises)."""
+
+    macros = {
+        "bimodalTropicalFracFortyEight": PLACEHOLDER,
+        "bimodalTropicalEnrichFortyEight": PLACEHOLDER,
+    }
+    masks_path = Path(run_dir) / "masks.npz"
+    if not masks_path.exists():
+        return macros
+    m = np.load(masks_path)
+    if not {"bimodal", "lat_tropics"} <= set(m.files):
+        return macros
+    bimodal = m["bimodal"].astype(bool)
+    tropics = m["lat_tropics"].astype(bool)
+    n_bi = int(bimodal.sum())
+    if n_bi == 0:
+        return macros
+    trop_share = float((bimodal & tropics).sum()) / n_bi          # fraction in tropics
+    global_rate = bimodal.mean()                                  # global bimodal rate
+    trop_rate = float((bimodal & tropics).sum()) / int(tropics.sum())
+    macros["bimodalTropicalFracFortyEight"] = fmt_pct(trop_share)
+    macros["bimodalTropicalEnrichFortyEight"] = (
+        fmt_lambda(trop_rate / global_rate) if global_rate > 0 else PLACEHOLDER)
+    return macros
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -752,6 +786,10 @@ def main():
     gap_means = aggregate_comparison_gaps(
         gap_per_init, label=COL_TO_LABEL["Converged"], column="Converged")
     macros = {**macros, **build_comparison_gap_macros(gap_means)}
+    # I5: geography of the >2 sigma bimodal cells, from the same converged +48h
+    # step-8 masks the bootstrap reads (forecast regime, not the recon audit).
+    macros = {**macros, **build_bimodal_geography_macros(
+        args.runs_dir / "phase_4_fc48_14ep_step8")}
     tables = {
         "pi_softening.tex": build_pi_softening_table(soft_rows),
         "lambda_calibration.tex": build_lambda_table(lambda_stars, soft_rows),

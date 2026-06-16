@@ -31,9 +31,10 @@ SIXEP_SPEC = {"prefix": "phase_4_fc48_6ep", "label": "6ep", "column": "SixEp",
               "run_id": "gmm_fc48_v1"}
 
 # Converged = v2 me7 (14 ep). F1 track-2: the SAME trained model inferred at the
-# twelve first-of-month 2023 init dates -- distinct synoptic cases across the 2023
-# validation window, NOT seasons (report: seasonal/global generality stays a
-# non-claim). The canonical init (A = 2023-11-01) supplies the *unchanged*
+# twelve first-of-month 2023 init dates -- one synoptic case per month, so the set
+# spans all four calendar seasons of 2023. This is a descriptive across-condition
+# span only: seasonal/global generality (rung-4 physical realism) stays a non-claim
+# (n=1/month, single year). The canonical init (A = 2023-11-01) supplies the *unchanged*
 # single-init headline rows; all twelve are aggregated into the across-init
 # mean + range (`kind='init_mean'`).
 CONVERGED_LABEL = "14ep"
