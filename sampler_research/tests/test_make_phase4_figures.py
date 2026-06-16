@@ -62,10 +62,13 @@ _FORECAST_STEP8 = "phase_4_fc48_14ep_step8"
 
 
 @pytest.mark.skipif(not THESIS.exists(), reason="report/thesis.tex absent")
-@pytest.mark.parametrize("stem", ["phase_4_pareto_smear.png", "phase_4_variogram.png"])
+@pytest.mark.parametrize(
+    "stem",
+    ["phase_4_pareto_smear.png", "phase_4_variogram.png", "phase_4_spectrum.png"],
+)
 def test_forecast_figures_point_at_step8_render(stem):
-    """The Ch5 pareto-smear and the descriptive variogram must \\includegraphics
-    the +48h converged render, and that asset must exist."""
+    """The Ch5 pareto-smear, the main-text spectrum, and the descriptive variogram
+    must \\includegraphics the +48h converged render, and that asset must exist."""
     text = THESIS.read_text()
     includes = re.findall(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]*" + re.escape(stem) + r")\}", text)
     assert includes, f"no \\includegraphics for {stem} in thesis.tex"

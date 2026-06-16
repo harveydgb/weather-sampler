@@ -65,6 +65,44 @@ def plot_mu_slices(mu):
     return fig, axes
 
 
+# Shared field -> (colour, marker, linestyle) map so the variogram (real space)
+# and the spectrum (spectral space) read as the same diagnostic two ways: the iid
+# white floor and the mixture-mean over-smooth field are the bracket; the sampler
+# siblings sit between; the ERA5 reference is a thin grey dashed line, drawn last
+# so it reads as a reference and not a series (direction-of-realism, NOT a target).
+_FIELD_STYLE = {
+    "iid_seed0": ("tab:red", "o", "-"),          # over-noisy white floor (upper)
+    "mixture_mean": ("tab:purple", "v", "-"),    # over-smooth extreme (lower)
+    "mode_map": ("0.45", "s", "--"),
+    "smoothed_map_n10": ("tab:orange", "^", "--"),
+    "m1_star": ("tab:blue", "D", "-"),
+    "m4_beta1": ("tab:green", "P", "--"),
+}
+ERA5_KEY = "era5"
+_ERA5_STYLE = ("0.35", None, ":")
+_FALLBACK_CYCLE = [
+    ("tab:cyan", "o", "-"), ("tab:brown", "s", "--"),
+    ("tab:olive", "^", "-"), ("tab:pink", "d", "--"),
+]
+
+
+def field_style(name, idx=0):
+    """(colour, marker, linestyle) for a field, stable across variogram/spectrum."""
+    if name == ERA5_KEY:
+        return _ERA5_STYLE
+    if name in _FIELD_STYLE:
+        return _FIELD_STYLE[name]
+    return _FALLBACK_CYCLE[idx % len(_FALLBACK_CYCLE)]
+
+
+def _ordered_items(series):
+    """Series in a stable order with the ERA5 reference drawn LAST (on top)."""
+    keys = [k for k in series if k != ERA5_KEY]
+    if ERA5_KEY in series:
+        keys.append(ERA5_KEY)
+    return [(k, series[k]) for k in keys]
+
+
 def plot_variograms(
     centres,
     variograms,
@@ -75,13 +113,48 @@ def plot_variograms(
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(6.5, 3.8))
-    markers = ["o-", "s--", "^-", "d--"]
-    for idx, (label, values) in enumerate(variograms.items()):
-        ax.plot(centres, values, markers[idx % len(markers)], ms=3.5, lw=1.5, label=label)
+    for idx, (label, values) in enumerate(_ordered_items(variograms)):
+        colour, marker, ls = field_style(label, idx)
+        if label == ERA5_KEY:
+            ax.plot(centres, values, ls, color=colour, lw=1.0, label="ERA5 (reference)")
+        else:
+            ax.plot(centres, values, marker=marker, ls=ls, color=colour,
+                    ms=3.5, lw=1.5, label=label)
     ax.set_xlabel(xlabel)
     ax.set_ylabel("semivariance")
     ax.set_title(title)
-    ax.legend()
+    ax.legend(fontsize=7)
+    fig.tight_layout()
+    return fig, ax
+
+
+def plot_spectra(ell, spectra, *, title, era5_key=ERA5_KEY):
+    """Log-log angular power spectrum C_l vs degree l for the headline fields.
+
+    RUNG-3 BRACKET DIAGNOSTIC (not a skill metric, not an optimisation target):
+    the iid draw is the over-noisy white floor (upper at high l), the mixture-mean
+    field is the over-smooth extreme (lower), the sampler siblings sit between and
+    below iid at high l. The ERA5 series (if present) is drawn as a THIN grey
+    dashed reference line LAST -- direction-of-realism only, never a target. There
+    is no GMM-derivable target spectrum (large_notes open problem). Returns
+    ``(fig, ax)``.
+    """
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(6.5, 3.8))
+    for idx, (label, values) in enumerate(_ordered_items(spectra)):
+        colour, marker, ls = field_style(label, idx)
+        if label == era5_key:
+            ax.plot(ell, values, ls, color=colour, lw=1.0, label="ERA5 (reference)")
+        else:
+            ax.plot(ell, values, marker=marker, ls=ls, color=colour,
+                    ms=2.8, lw=1.4, label=label)
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("angular degree $\\ell$")
+    ax.set_ylabel("$C_\\ell$ (resolved band)")
+    ax.set_title(title)
+    ax.legend(fontsize=7)
     fig.tight_layout()
     return fig, ax
 

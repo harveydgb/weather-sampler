@@ -40,17 +40,37 @@ FIG_DIR = REPO_ROOT / "outputs" / "figures"
 
 SIXEP_SPEC = {"prefix": "phase_4_fc48_6ep", "label": "6ep", "column": "SixEp"}
 
-# Converged = v2 me7 (14 ep). F1 track-2 replicates: the SAME trained model at
-# three autumn-2023 init dates (distinct synoptic cases, NOT seasons). Canonical
-# init A (first) gives the unchanged single-init headline rows; all present inits
-# feed the across-init mean + range (`kind='init_mean'`).
+# Converged = v2 me7 (14 ep). F1 track-2 replicates: the SAME trained model at the
+# twelve first-of-month 2023 init dates (distinct synoptic cases, NOT seasons).
+# Canonical init A (= 2023-11-01) gives the unchanged single-init headline rows;
+# all present inits feed the across-init mean + range (`kind='init_mean'`).
 CONVERGED_LABEL = "14ep"
 CONVERGED_COLUMN = "Converged"
-CONVERGED_INIT_PREFIXES = (
-    "phase_4_fc48_14ep",                # init A: 2023-11-01T00:00 (canonical/headline)
-    "phase_4_fc48_v2_init20231010T12",  # init B: 2023-10-10T12:00
-    "phase_4_fc48_v2_init20231215",     # init C: 2023-12-15T00:00
-)
+# Across-init set resolved by the SAME rule as scripts/emit_report_results.py
+# (headline prefix + `init2023MM01` glob) so the faithfulness/softening aggregate
+# and the emitted comparison gap can never desync. The glob excludes the deprecated
+# pilot inits B (..._init20231010T12) and C (..._init20231215) -- not first-of-month.
+CONVERGED_HEADLINE_PREFIX = "phase_4_fc48_14ep"       # init A = 2023-11-01 (canonical)
+CONVERGED_REPLICATE_GLOB = "phase_4_fc48_v2_init2023??01"
+
+
+def _discover_converged_prefixes(data_dir):
+    """Converged-init prefixes with per-lead npz in `data_dir`, canonical-first.
+
+    Headline init A first, then the first-of-month `init2023MM01` replicates
+    (sorted). Mirrors `_discover_converged_prefixes` in emit_report_results.py.
+    """
+    data_dir = Path(data_dir)
+    prefixes = []
+    if any(data_dir.glob(f"{CONVERGED_HEADLINE_PREFIX}_step*_2t.npz")):
+        prefixes.append(CONVERGED_HEADLINE_PREFIX)
+    seen = set()
+    for path in sorted(data_dir.glob(f"{CONVERGED_REPLICATE_GLOB}_step*_2t.npz")):
+        prefix = path.name.rsplit("_step", 1)[0]
+        if prefix not in seen:
+            seen.add(prefix)
+            prefixes.append(prefix)
+    return prefixes
 N_MEMBERS = 50
 
 BASE_FIELDS = ("run", "column", "prefix", "kind", "n_inits", "init_datetime",
@@ -212,7 +232,7 @@ def aggregate_converged_faith(per_init):
         group = by_step[step]
         inits = sorted({str(r.get("init_datetime")) for r in group})
         agg = {"run": CONVERGED_LABEL, "column": CONVERGED_COLUMN,
-               "prefix": f"{CONVERGED_INIT_PREFIXES[0]}+{len(per_init) - 1}",
+               "prefix": f"{CONVERGED_HEADLINE_PREFIX}+{len(per_init) - 1}",
                "kind": "init_mean", "n_inits": len(group),
                "init_datetime": ";".join(inits), "step": step,
                "lead_hours": group[0]["lead_hours"]}
@@ -294,11 +314,11 @@ def main():
     args = parser.parse_args()
 
     # (prefix, label, column, kind, make_fig). The 6ep run and the canonical 14ep
-    # init A are the headline single-init rows (kind="single", figures drawn);
-    # converged inits B/C are extra replicates (kind="init", no separate figure)
-    # that only feed the across-init aggregate.
+    # init A are the headline single-init rows (kind="single", figures drawn); the
+    # remaining first-of-month replicates are extra inits (kind="init", no separate
+    # figure) that only feed the across-init aggregate.
     plan = [(SIXEP_SPEC["prefix"], SIXEP_SPEC["label"], SIXEP_SPEC["column"], "single", True)]
-    for i, prefix in enumerate(CONVERGED_INIT_PREFIXES):
+    for i, prefix in enumerate(_discover_converged_prefixes(args.data_dir)):
         plan.append((prefix, CONVERGED_LABEL, CONVERGED_COLUMN,
                      "single" if i == 0 else "init", i == 0))
     if args.prefix is not None:

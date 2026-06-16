@@ -7,7 +7,11 @@ Run after `scripts/run_phase4_real.py` (all stages + --lambda-star):
 Writes to outputs/figures/:
   phase_4_maps.png               4/5-panel global Mollweide
   phase_4_pareto_smear.png       (NLL/N, R~) plane + smear-fraction panel
-  phase_4_variogram.png          sampled spherical variograms (descriptive)
+  phase_4_variogram.png          sampled spherical variograms (descriptive;
+                                 + ERA5 reference line if available)
+  phase_4_spectrum.png           native O96 angular power spectrum C_l vs l
+                                 (rung-3 bracket; main-text coherence figure;
+                                 + ERA5 direction reference if available)
   phase_4_bimodal_enrichment.png W1 MUST: dNLL>0.125 enrichment in the audit
                                  S4 bimodal masks + Mollweide dNLL map
   phase_4_robustness.png         unary-gap histogram (why the Method 4 beta
@@ -34,7 +38,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from sampler_research.io import load_real_marginal
-from sampler_research.plotting import plot_mollweide_fields, plot_variograms
+from sampler_research.plotting import plot_mollweide_fields, plot_spectra, plot_variograms
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUN_DIR = REPO_ROOT / "outputs" / "runs" / "phase_4_real"
@@ -184,15 +188,50 @@ def fig_variogram():
     with np.load(RUN_DIR / "variograms.npz") as f:
         centres = f["centres"]
         variograms = {k: f[k] for k in f.files if k != "centres"}
+    # An `era5` series (if the runner could load it) is the same rung-3
+    # direction-of-realism reference as on the spectrum -- descriptive, not a
+    # target. It is picked up automatically from variograms.npz and drawn last.
+    has_era5 = "era5" in variograms
+    title = "Sampled spherical variograms (descriptive, bracket-anchored)"
+    if has_era5:
+        title += " + ERA5 reference"
     fig, ax = plot_variograms(
-        centres, variograms,
-        xlabel="angular distance (deg)",
-        title="Sampled spherical variograms (descriptive, bracket-anchored)",
+        centres, variograms, xlabel="angular distance (deg)", title=title,
     )
     ax.set_xlim(0, 60)
     fig.savefig(FIG_DIR / "phase_4_variogram.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print("wrote phase_4_variogram.png")
+    print("wrote phase_4_variogram.png" + (" (with ERA5 reference)" if has_era5 else ""))
+
+
+def fig_spectrum():
+    """Native O96 angular power spectrum C_l -- main-text coherence figure (S5.4).
+
+    RUNG-3 bracket diagnostic, never a target/validation. Mirrors fig_variogram:
+    loads spectra.npz (written by run_phase4_real.py stage_scores), plots over the
+    Parseval-resolved band, draws any `era5` series as a direction-of-realism
+    reference line. Skips gracefully if spectra.npz is absent (older run dirs).
+    """
+    spec_path = RUN_DIR / "spectra.npz"
+    if not spec_path.exists():
+        print(f"skip phase_4_spectrum.png ({spec_path.name} absent; "
+              "rerun the scores stage to produce it)")
+        return
+    with np.load(spec_path) as f:
+        ell = f["ell"]
+        lmax_resolved = int(f["lmax_resolved"]) if "lmax_resolved" in f.files else int(ell[-1])
+        spectra = {k: f[k] for k in f.files if k not in ("ell", "lmax_resolved")}
+    has_era5 = "era5" in spectra
+    title = (
+        f"Angular power spectrum $C_\\ell$ (native O96 SHT; resolved $\\ell\\in[1,"
+        f"{lmax_resolved}]$)\nrung-3 bracket — reference, not a target"
+    )
+    fig, ax = plot_spectra(ell, spectra, title=title)
+    ax.set_xlim(1, lmax_resolved)
+    fig.suptitle(_regime_label(), fontsize=9, y=1.02)
+    fig.savefig(FIG_DIR / "phase_4_spectrum.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("wrote phase_4_spectrum.png" + (" (with ERA5 reference)" if has_era5 else ""))
 
 
 def fig_bimodal_enrichment(latlons, star):
@@ -326,7 +365,7 @@ def main():
     global RUN_DIR, FIG_DIR, DATA_NPZ
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--only", nargs="*", default=None,
-                        help="subset of {maps, pareto, variogram, enrichment, robustness}")
+                        help="subset of {maps, pareto, variogram, spectrum, enrichment, robustness}")
     parser.add_argument("--data", type=Path, default=DATA_NPZ,
                         help="real-marginal npz (mirrors run_phase4_real.py --data)")
     parser.add_argument("--out-dir", type=Path, default=RUN_DIR,
@@ -346,6 +385,7 @@ def main():
         "maps": lambda: fig_maps(data["latlons"], star),
         "pareto": lambda: fig_pareto_smear(star),
         "variogram": fig_variogram,
+        "spectrum": fig_spectrum,
         "enrichment": lambda: fig_bimodal_enrichment(data["latlons"], star),
         "robustness": lambda: fig_robustness(star),
     }

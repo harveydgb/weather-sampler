@@ -44,7 +44,7 @@ DEFAULT_FIGURES_DIR = REPO_ROOT / "outputs" / "figures"
 # which the forecast leads never generate -> a bare `--figures` call would crash
 # with FileNotFoundError. The faithfulness figure is produced separately by
 # scripts/run_forecast_faithfulness.py.
-LEAD_FIGURE_NAMES = ("maps", "pareto", "variogram", "enrichment")
+LEAD_FIGURE_NAMES = ("maps", "pareto", "variogram", "spectrum", "enrichment")
 
 LEAD_RE_TEMPLATE = r"^{prefix}_step(?P<step>[0-9]+)_2t\.npz$"
 

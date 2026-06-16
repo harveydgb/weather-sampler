@@ -15,7 +15,8 @@ Stages (separately invokable; later stages load earlier artifacts):
   modes   -> modes.npz (mean-shift mode extraction, heteroscedastic update)
   m1      -> method1_sweep.npz (bracket-guarded lambda sweep)
   m4      -> method4_sweep.npz (value-space MRF beta sweep; SHOULD)
-  scores  -> delta_per_cell.npz + scores.csv/.md + variograms.npz + timings.json
+  scores  -> delta_per_cell.npz + scores.csv/.md + variograms.npz + spectra.npz
+             (native O96 angular power spectrum, rung-3 bracket) + timings.json
 
 `--lambda-star` applies the S6 roughness-matching rule to the persisted sweep
 (target = smoothed-MAP n_iters=10 R-tilde), extends the sweep decade-by-decade
@@ -43,7 +44,10 @@ from sampler_research.baselines import (
     mode_field,
     smoothed_map_baseline,
 )
-from sampler_research.diagnostics import sampled_spherical_variogram
+from sampler_research.diagnostics import (
+    sampled_spherical_power_spectrum,
+    sampled_spherical_variogram,
+)
 from sampler_research.gmm import sample_iid_gmm
 from sampler_research.graph import (
     edge_arc_km,
@@ -625,6 +629,36 @@ def _collect_fields(out_dir):
     return fields
 
 
+def _maybe_load_era5_reference(regime, latlons, out_dir, args):
+    """ERA5 rung-3 direction-of-realism reference, or None on ANY failure.
+
+    Never raises into the runner (cut criterion C4, spectrum_era5_plan S8): on
+    --no-era5, a missing valid_datetime, missing data access, or a grid mismatch,
+    it logs `[scores] ERA5 reference skipped: <reason>` and returns None so the
+    spectrum and variogram still ship sample-only. ERA5 is a *direction*
+    reference among siblings sharing the decoder mean -- never a target, never
+    validation.
+    """
+    if getattr(args, "no_era5", False):
+        print("[scores] ERA5 reference skipped: --no-era5")
+        return None
+    valid_dt = (regime or {}).get("valid_datetime")
+    if not valid_dt:
+        print("[scores] ERA5 reference skipped: no valid_datetime in this regime")
+        return None
+    try:
+        import importlib.util
+
+        loader_path = Path(__file__).resolve().parent / "load_era5_reference.py"
+        spec = importlib.util.spec_from_file_location("load_era5_reference", loader_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.load_era5_2t_on_o96(valid_dt, latlons, meta_dir=out_dir)
+    except Exception as exc:  # noqa: BLE001 - any failure -> sample-only spectrum
+        print(f"[scores] ERA5 reference skipped: {exc}")
+        return None
+
+
 def stage_scores(data, out_dir, args):
     pi, mu, sigma, latlons = data["pi"], data["mu"], data["sigma"], data["latlons"]
     masks_all = _load_masks(out_dir)
@@ -694,16 +728,37 @@ def stage_scores(data, out_dir, args):
             nearest = min(m4_rows, key=lambda r: abs(r["r_tilde"] - star_row["r_tilde"]))
             headline.append(nearest["name"])
     vario_fields = {n: fields[n][0] for n in headline if n in fields}
+
+    # Optional ERA5 rung-3 direction reference, added to BOTH the variogram and
+    # the spectrum so they carry an identical field set (it is the same diagnostic
+    # two ways). None on any gate failure -> both ship sample-only (cut C4).
+    era5 = _maybe_load_era5_reference(regime, latlons, out_dir, args)
+    vario_fields_with_era5 = dict(vario_fields)
+    spec_fields = dict(vario_fields)
+    if era5 is not None:
+        vario_fields_with_era5["era5"] = era5
+        spec_fields["era5"] = era5
+
     n_pairs = 10_000 if args.quick else VARIOGRAM_PAIRS
     centres, variograms, _ = sampled_spherical_variogram(
-        latlons, vario_fields, n_pairs=n_pairs
+        latlons, vario_fields_with_era5, n_pairs=n_pairs
     )
     np.savez(out_dir / "variograms.npz", centres=centres, **variograms)
+    variograms_s = time.perf_counter() - t0
+
+    # Native O96 angular power spectrum for the SAME field set (rung-3 bracket
+    # diagnostic; spectrum_era5_plan.md). Default engine is the validated
+    # pure-numpy SHT (no extra dependency).
+    t0 = time.perf_counter()
+    ell, spectra, lmax_resolved = sampled_spherical_power_spectrum(latlons, spec_fields)
+    np.savez(out_dir / "spectra.npz", ell=ell, lmax_resolved=lmax_resolved, **spectra)
     _update_timings(
-        out_dir, scores_s=scores_s, variograms_s=time.perf_counter() - t0
+        out_dir, scores_s=scores_s, variograms_s=variograms_s,
+        spectra_s=time.perf_counter() - t0,
     )
-    print(f"[scores] wrote scores.csv/.md, delta_per_cell.npz, variograms.npz "
-          f"({len(rows)} fields)")
+    print(f"[scores] wrote scores.csv/.md, delta_per_cell.npz, variograms.npz, "
+          f"spectra.npz (resolved l<= {lmax_resolved}; {len(rows)} fields, "
+          f"era5={'yes' if era5 is not None else 'no'})")
 
 
 def main():
@@ -719,6 +774,9 @@ def main():
     parser.add_argument("--graph-cache", type=Path, default=None,
                         help="shared k-NN graph npz reused across leads (same latlons); "
                              "computed and cached on first use")
+    parser.add_argument("--no-era5", action="store_true",
+                        help="force sample-only spectrum/variogram (skip the ERA5 "
+                             "rung-3 direction reference even if data access exists)")
     args = parser.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)

@@ -130,6 +130,14 @@ def test_skip_convert_plans_only_existing_per_lead_npz_files(tmp_path):
     ]
 
 
+def test_spectrum_is_a_per_lead_figure():
+    """The native spherical spectrum is rendered per forecast lead (and excludes
+    robustness, which the forecast path never produces)."""
+    runner = _load_runner()
+    assert "spectrum" in runner.LEAD_FIGURE_NAMES
+    assert "robustness" not in runner.LEAD_FIGURE_NAMES
+
+
 def test_per_lead_figures_exclude_robustness_via_only(tmp_path):
     """Per-lead figure command must pass --only (excludes the robustness figure,
     which reads robustness_probes.json the forecast path never generates)."""

@@ -641,8 +641,12 @@ def build_crps_extremum_macros(faith_rows):
 # resampled over forecast INITS (not cells, like the bootstrap above). Init
 # prefixes are discovered from the scored run dirs, so adding inits needs no edit
 # here -- the canonical init A plus every `phase_4_fc48_v2_init*` replicate.
-CONVERGED_HEADLINE_PREFIX = "phase_4_fc48_14ep"       # init A (canonical)
-CONVERGED_REPLICATE_GLOB = "phase_4_fc48_v2_init*"    # replicate inits B, C, ...
+CONVERGED_HEADLINE_PREFIX = "phase_4_fc48_14ep"       # init A = 2023-11-01 (canonical)
+# First-of-month 2023 replicates only (`init2023MM01`): this deliberately excludes
+# the deprecated pilot inits B (..._init20231010T12) and C (..._init20231215),
+# whose months are already covered by the Oct-01/Dec-01 first-of-month cases, so
+# the across-init set is exactly the 12 first-of-month synoptic cases.
+CONVERGED_REPLICATE_GLOB = "phase_4_fc48_v2_init2023??01"
 
 
 def _discover_converged_prefixes(runs_dir):

@@ -12,6 +12,10 @@ numpy==2.4.6
 scipy==1.17.1
 matplotlib==3.10.9
 pytest==9.0.3
+# (ducc0 is an OPTIONAL accelerator for the spherical power spectrum -- see the
+# pyproject `spectrum` extra. The default engine is pure-numpy, so it is left out
+# of this pinned set to keep the clean-clone reproduction path platform-portable;
+# ducc0 has no aarch64 wheel and needs Python dev headers to build from source.)
 # The research package itself (editable), so a clean clone can run the suite with
 # a single `pip install -r requirements.txt`; the pins above satisfy its floors.
 -e .

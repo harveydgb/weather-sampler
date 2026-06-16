@@ -30,20 +30,40 @@ FIG_DIR = REPO_ROOT / "outputs" / "figures"
 SIXEP_SPEC = {"prefix": "phase_4_fc48_6ep", "label": "6ep", "column": "SixEp",
               "run_id": "gmm_fc48_v1"}
 
-# Converged = v2 me7 (14 ep). F1 track-2: the SAME trained model inferred at three
-# autumn-2023 init dates -- distinct synoptic cases within the Oct-Dec 2023
+# Converged = v2 me7 (14 ep). F1 track-2: the SAME trained model inferred at the
+# twelve first-of-month 2023 init dates -- distinct synoptic cases across the 2023
 # validation window, NOT seasons (report: seasonal/global generality stays a
-# non-claim). The canonical init (A, first below) supplies the *unchanged*
-# single-init headline rows; all three are aggregated into the across-init
+# non-claim). The canonical init (A = 2023-11-01) supplies the *unchanged*
+# single-init headline rows; all twelve are aggregated into the across-init
 # mean + range (`kind='init_mean'`).
 CONVERGED_LABEL = "14ep"
 CONVERGED_COLUMN = "Converged"
 CONVERGED_RUN_ID = "gmm_fc48_v2"
-CONVERGED_INIT_PREFIXES = (
-    "phase_4_fc48_14ep",                # init A: 2023-11-01T00:00 (canonical/headline)
-    "phase_4_fc48_v2_init20231010T12",  # init B: 2023-10-10T12:00
-    "phase_4_fc48_v2_init20231215",     # init C: 2023-12-15T00:00
-)
+# Across-init set resolved by the SAME rule as scripts/emit_report_results.py
+# (headline prefix + `init2023MM01` glob) so the softening/faithfulness aggregate
+# and the emitted comparison gap can never desync. The glob excludes the deprecated
+# pilot inits B (..._init20231010T12) and C (..._init20231215) -- not first-of-month.
+CONVERGED_HEADLINE_PREFIX = "phase_4_fc48_14ep"       # init A = 2023-11-01 (canonical)
+CONVERGED_REPLICATE_GLOB = "phase_4_fc48_v2_init2023??01"
+
+
+def _discover_converged_prefixes(data_dir):
+    """Converged-init prefixes with per-lead npz in `data_dir`, canonical-first.
+
+    Headline init A first, then the first-of-month `init2023MM01` replicates
+    (sorted). Mirrors `_discover_converged_prefixes` in emit_report_results.py.
+    """
+    data_dir = Path(data_dir)
+    prefixes = []
+    if any(data_dir.glob(f"{CONVERGED_HEADLINE_PREFIX}_step*_2t.npz")):
+        prefixes.append(CONVERGED_HEADLINE_PREFIX)
+    seen = set()
+    for path in sorted(data_dir.glob(f"{CONVERGED_REPLICATE_GLOB}_step*_2t.npz")):
+        prefix = path.name.rsplit("_step", 1)[0]
+        if prefix not in seen:
+            seen.add(prefix)
+            prefixes.append(prefix)
+    return prefixes
 # Min-max range columns appended per metric for the across-init aggregate rows.
 SPREAD_SUFFIXES = ("_lo", "_hi")
 
@@ -108,15 +128,18 @@ def softening_rows(data_dir, spec, kind="single"):
     return rows
 
 
-def converged_init_rows(data_dir, prefixes=CONVERGED_INIT_PREFIXES):
+def converged_init_rows(data_dir, prefixes=None):
     """Per-init softening rows for every converged init prefix that has npz.
 
     Returns a list of (prefix, rows) for the inits present, canonical-first. The
     canonical init (A) is tagged ``kind='single'`` (the unchanged headline row);
     the others ``kind='init'``. Missing inits are skipped, so the script still
-    runs (single-init behaviour) before the B/C reruns land.
+    runs (single-init behaviour) before the replicate inits land. With
+    ``prefixes=None`` the set is discovered via ``_discover_converged_prefixes``.
     """
 
+    if prefixes is None:
+        prefixes = _discover_converged_prefixes(data_dir)
     found = []
     for i, prefix in enumerate(prefixes):
         spec = {"prefix": prefix, "label": CONVERGED_LABEL,
@@ -148,7 +171,7 @@ def aggregate_converged_rows(per_init):
         inits = sorted({str(r.get("init_datetime")) for r in group})
         agg = {"run": CONVERGED_LABEL, "column": CONVERGED_COLUMN,
                "run_id": CONVERGED_RUN_ID,
-               "prefix": f"{CONVERGED_INIT_PREFIXES[0]}+{len(per_init) - 1}",
+               "prefix": f"{CONVERGED_HEADLINE_PREFIX}+{len(per_init) - 1}",
                "kind": "init_mean", "n_inits": len(group),
                "init_datetime": ";".join(inits), "step": step,
                "lead_hours": group[0]["lead_hours"]}
@@ -266,7 +289,7 @@ def main():
               f"({', '.join(p for p, _ in per_init)})")
     elif len(per_init) == 1:
         print(f"[softening] only one converged init ({per_init[0][0]}); "
-              "no across-init spread yet (rerun B/C to populate it)")
+              "no across-init spread yet (run the first-of-month replicates to populate it)")
 
     if not rows:
         raise SystemExit("no per-lead npz found for any run; convert the forecast .pt first")

@@ -1,8 +1,21 @@
 import numpy as np
+import pytest
 
 from sampler_research.baselines import mode_field, score_field
 from sampler_research.spectral import radial_power_spectrum, spectral_roughness
 from sampler_research.toy import Phase1ToyConfig, make_phase1_toy
+
+
+def test_planar_spectral_path_still_rejects_flat_input():
+    """The toy planar FFT spectrum stays LATTICE-gated: it rejects 1-D/flat input.
+
+    The native spherical C_l (diagnostics.sampled_spherical_power_spectrum) is a
+    separate object for the O96 sphere; this guard ensures the spherical work did
+    not loosen the planar gate (the planar FFT is invalid on the sphere)."""
+    with pytest.raises(ValueError):
+        radial_power_spectrum(np.zeros(64))
+    with pytest.raises(ValueError):
+        spectral_roughness(np.arange(64, dtype=float))
 
 
 def test_radial_power_spectrum_excludes_dc_bin():
