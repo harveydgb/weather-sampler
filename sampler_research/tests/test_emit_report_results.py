@@ -413,12 +413,66 @@ def test_fmt_sci_two_sig_figs_and_placeholder():
     assert m.fmt_sci(float("nan")) == m.PLACEHOLDER
 
 
+# -------------------------------------------- Ch 4 synthetic-testbed macros (I2)
+TOY = [
+    {"dataset": "phase_1_homoscedastic", "baseline": "iid",
+     "nll_over_n": 1.9771706, "r_tilde": 2.0774265},
+    {"dataset": "phase_1_homoscedastic", "baseline": "mode_map",
+     "nll_over_n": 1.5510744, "r_tilde": 1.4619713},
+    {"dataset": "phase_1_homoscedastic", "baseline": "mixture_mean",
+     "nll_over_n": 1.7020445, "r_tilde": 0.6275017},
+    {"dataset": "phase_1_homoscedastic", "baseline": "smoothed_map",
+     "nll_over_n": 1.7304362, "r_tilde": 0.1840136},
+    {"dataset": "phase_1_homoscedastic", "baseline": "a_star",
+     "nll_over_n": 1.5913850, "r_tilde": 0.4949174},
+]
+
+
+def test_build_toy_baseline_macros_fills_and_placeholders():
+    m = _load()
+    macros = m.build_toy_baseline_macros(TOY)
+    assert len(macros) == 10  # 5 anchors x {Nll, Rtilde}
+    assert macros["toyIidNll"] == "1.977" and macros["toyIidRtilde"] == "2.077"
+    assert macros["toySmoothedMapRtilde"] == "0.184"   # over-smoothed skeptic baseline
+    assert macros["toyAStarNll"] == "1.591"             # smoothest faithful anchor
+    assert macros["toyMixtureMeanRtilde"] == "0.628"
+    assert macros["toyModeMapRtilde"] == "1.462"
+    # a baseline absent from the rows -> placeholders (never invented)
+    partial = m.build_toy_baseline_macros([r for r in TOY if r["baseline"] != "a_star"])
+    assert partial["toyAStarNll"] == m.PLACEHOLDER
+    assert partial["toyAStarRtilde"] == m.PLACEHOLDER
+    # empty -> all placeholders
+    assert all(v == m.PLACEHOLDER for v in m.build_toy_baseline_macros([]).values())
+
+
+def test_build_toy_baseline_macros_is_pure():
+    m = _load()
+    import copy
+    toy_copy = copy.deepcopy(TOY)
+    a = m.build_toy_baseline_macros(TOY)
+    b = m.build_toy_baseline_macros(TOY)
+    assert a == b and TOY == toy_copy
+
+
+def test_build_toy_baseline_table_renders_rows_and_placeholders():
+    m = _load()
+    tbl = m.build_toy_baseline_table(TOY)
+    assert r"\begin{tabular}{lcc}" in tbl and r"\bottomrule" in tbl
+    assert r"Reference field & NLL/$N$ & $\widetilde{R}$" in tbl
+    assert "1.977" in tbl and "2.077" in tbl          # iid row
+    assert r"Smoothest faithful ($a^\star$) & 1.591 & 0.495" in tbl
+    # a missing anchor -> em-dash (placeholder) cells, table still complete
+    tbl2 = m.build_toy_baseline_table([r for r in TOY if r["baseline"] != "iid"])
+    assert f"Independent draw (iid) & {m.PLACEHOLDER} & {m.PLACEHOLDER}" in tbl2
+
+
 # ----------------------------------------------------- F2 golden round-trip
 _SOFT_CSV = REPO_ROOT / "outputs" / "runs" / "phase_4_forecast_softening" / "softening_by_lead.csv"
 _FAITH_CSV = REPO_ROOT / "outputs" / "runs" / "phase_4_forecast_faithfulness" / "faithfulness_by_lead.csv"
+_TOY_CSV = REPO_ROOT / "outputs" / "runs" / "stage_a_baselines" / "stage_a_scores.csv"
 _COMMITTED = REPO_ROOT / "report" / "construction"
 needs_emit_artifacts = pytest.mark.skipif(
-    not (_SOFT_CSV.exists() and _FAITH_CSV.exists()
+    not (_SOFT_CSV.exists() and _FAITH_CSV.exists() and _TOY_CSV.exists()
          and (_COMMITTED / "macros-results.tex").exists()),
     reason="emit artifacts or committed report dir absent",
 )
@@ -441,7 +495,8 @@ def test_emit_golden_roundtrip_matches_committed(tmp_path):
         sys.argv = saved
     assert (out / "macros-results.tex").read_text() == \
         (_COMMITTED / "macros-results.tex").read_text()
-    for name in ("pi_softening.tex", "lambda_calibration.tex", "faithfulness.tex"):
+    for name in ("pi_softening.tex", "lambda_calibration.tex", "faithfulness.tex",
+                 "toy_baselines.tex"):
         assert (out / "tables" / name).read_text() == \
             (_COMMITTED / "tables" / name).read_text(), name
 

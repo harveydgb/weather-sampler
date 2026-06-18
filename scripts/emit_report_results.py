@@ -32,6 +32,7 @@ SOFT_CSV = REPO_ROOT / "outputs" / "runs" / "phase_4_forecast_softening" / "soft
 FAITH_CSV = REPO_ROOT / "outputs" / "runs" / "phase_4_forecast_faithfulness" / "faithfulness_by_lead.csv"
 RUNS_DIR = REPO_ROOT / "outputs" / "runs"
 AE_RUN_DIR = REPO_ROOT / "outputs" / "runs" / "phase_4_real"
+TOY_SCORES_CSV = REPO_ROOT / "outputs" / "runs" / "stage_a_baselines" / "stage_a_scores.csv"
 REPORT_DIR = REPO_ROOT / "report" / "construction"
 
 PLACEHOLDER = r"\ResultPlaceholder"
@@ -39,6 +40,18 @@ PLACEHOLDER = r"\ResultPlaceholder"
 HEADLINE_STEP = 8
 HOUR_STEP = {"SixHour": 1, "FortyEight": 8}
 COL_TO_LABEL = {"SixEp": "6ep", "Converged": "14ep"}
+# Chapter-4 synthetic-testbed bracket anchors (I2): the Stage-A baseline rows
+# (outputs/runs/stage_a_baselines/stage_a_scores.csv) quoted as toy macros + a toy
+# table, so Chapter 4 cites its numbers via macros, never hand-typed. Each tuple is
+# (csv `baseline` key, macro infix, table display name). LaTeX \newcommand names
+# cannot carry digits/underscores, so the infix is letters-only.
+TOY_BASELINES = [
+    ("iid", "Iid", r"Independent draw (iid)"),
+    ("mode_map", "ModeMap", r"Per-cell MAP (mode)"),
+    ("mixture_mean", "MixtureMean", r"Mixture mean"),
+    ("smoothed_map", "SmoothedMap", r"Smoothed MAP"),
+    ("a_star", "AStar", r"Smoothest faithful ($a^\star$)"),
+]
 # Documented, ultra-review-verified AE lambda* fallback (log.md 2026-06-11) when
 # the local AE run dir is absent; physical value, not a guess.
 AE_LAMBDA_STAR_FALLBACK = 93.74
@@ -270,6 +283,51 @@ def build_faithfulness_table(faith_rows, soft_rows):
         r"% $\Delta$CRPS is the stochastic iid do-no-harm baseline only; M1 PIT/coverage "
         r"are marginal-position diagnostics (report non-claim \#3).",
     ]
+    return "\n".join(head + body + tail) + "\n"
+
+
+# ------------------------------------------- Ch 4 synthetic-testbed brackets (I2)
+# Toy bracket macros + table from the Stage-A baseline scores, so Chapter 4 quotes
+# its numbers via macros (never hand-typed) exactly like the forecast chapter. Pure
+# over the CSV rows; a baseline absent from the rows -> em-dash placeholder.
+def build_toy_baseline_macros(toy_rows):
+    """Pure: Stage-A baseline rows -> toy NLL/N + R-tilde macros.
+
+    For each anchor in TOY_BASELINES emits `toy{Infix}Nll` and `toy{Infix}Rtilde`
+    (3 d.p.). Reads the `baseline`, `nll_over_n` and `r_tilde` columns only; a
+    baseline missing from `toy_rows` (or a missing value) -> placeholder.
+    """
+
+    by_name = {r.get("baseline"): r for r in toy_rows}
+    macros = {}
+    for key, infix, _label in TOY_BASELINES:
+        row = by_name.get(key)
+        macros[f"toy{infix}Nll"] = fmt_pi(row["nll_over_n"]) if row else PLACEHOLDER
+        macros[f"toy{infix}Rtilde"] = fmt_pi(row["r_tilde"]) if row else PLACEHOLDER
+    return macros
+
+
+def build_toy_baseline_table(toy_rows):
+    """Pure: Stage-A baseline rows -> the toy bracket table fragment.
+
+    One row per TOY_BASELINES anchor (display name, NLL/N, R-tilde); a missing
+    anchor renders as em-dashes so the table always compiles.
+    """
+
+    by_name = {r.get("baseline"): r for r in toy_rows}
+    head = [
+        r"\begin{tabular}{lcc}",
+        r"\toprule",
+        r"Reference field & NLL/$N$ & $\widetilde{R}$ \\",
+        r"\midrule",
+    ]
+    body = []
+    for key, _infix, label in TOY_BASELINES:
+        row = by_name.get(key)
+        nll = fmt_pi(row["nll_over_n"]) if row else PLACEHOLDER
+        rt = fmt_pi(row["r_tilde"]) if row else PLACEHOLDER
+        body.append(f"{label} & {nll} & {rt} " + r"\\")
+    tail = [r"\bottomrule", r"\end{tabular}"]
     return "\n".join(head + body + tail) + "\n"
 
 
@@ -728,6 +786,7 @@ def main():
     parser.add_argument("--faith-csv", type=Path, default=FAITH_CSV)
     parser.add_argument("--runs-dir", type=Path, default=RUNS_DIR)
     parser.add_argument("--ae-run-dir", type=Path, default=AE_RUN_DIR)
+    parser.add_argument("--toy-csv", type=Path, default=TOY_SCORES_CSV)
     parser.add_argument("--report-dir", type=Path, default=REPORT_DIR)
     parser.add_argument("--allow-empty", action="store_true",
                         help="emit even when the forecast artifacts are absent "
@@ -738,6 +797,10 @@ def main():
     soft_rows = _read_csv_numeric(args.soft_csv)
     faith_rows = _read_csv_numeric(args.faith_csv)
     lambda_stars = _load_lambda_stars(args.runs_dir)
+    # Toy (Ch 4) artifacts are independent of the forecast pipeline and never gate
+    # the clobber guard below: a toy-only run must not license overwriting the
+    # forecast macros. Absent -> placeholders (em-dash).
+    toy_rows = _read_csv_numeric(args.toy_csv)
 
     # Clobber guard: the emitter's inputs (softening/faithfulness CSVs, per-lead
     # lambda_star.json) are git-ignored, so on a fresh clone they are absent. A
@@ -790,10 +853,13 @@ def main():
     # step-8 masks the bootstrap reads (forecast regime, not the recon audit).
     macros = {**macros, **build_bimodal_geography_macros(
         args.runs_dir / "phase_4_fc48_14ep_step8")}
+    # I2: Chapter-4 synthetic-testbed bracket macros (Stage-A baselines).
+    macros = {**macros, **build_toy_baseline_macros(toy_rows)}
     tables = {
         "pi_softening.tex": build_pi_softening_table(soft_rows),
         "lambda_calibration.tex": build_lambda_table(lambda_stars, soft_rows),
         "faithfulness.tex": build_faithfulness_table(faith_rows, soft_rows),
+        "toy_baselines.tex": build_toy_baseline_table(toy_rows),
     }
 
     (args.report_dir / "macros-results.tex").write_text(render_macros(macros))

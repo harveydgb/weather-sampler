@@ -11,6 +11,7 @@ venv/
 .env
 .envrc
 .claude/settings.local.json
+constraints.md
 
 # Tool caches
 .pytest_cache/
