@@ -362,7 +362,7 @@ def main():
     print(f"  mixture density at mixture mean: min={dens_mm.min():.3e} "
           f"(zeros: {int((dens_mm == 0).sum())})")
     print(f"  ICM cost scale: N={n}, k=8 edges={len(edges)}; python-loop ICM sweep "
-          f"touches {n} cells x ~8 neighbours; Method 1 grad eval = O(N*K + |E|) vectorised")
+          f"touches {n} cells x ~8 neighbours; Joint MAP grad eval = O(N*K + |E|) vectorised")
 
 
 if __name__ == "__main__":

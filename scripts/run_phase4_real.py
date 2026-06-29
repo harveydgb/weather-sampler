@@ -638,10 +638,26 @@ def _maybe_load_era5_reference(regime, latlons, out_dir, args):
     spectrum and variogram still ship sample-only. ERA5 is a *direction*
     reference among siblings sharing the decoder mean -- never a target, never
     validation.
+
+    Resolution order: a pre-computed `era5_reference.npz` in the run dir (dumped
+    by load_era5_reference.py under the WeatherGenerator venv, so the sampler venv
+    never needs the anemoi/zarr stack) is preferred; otherwise the loader is
+    called live (requires anemoi + the zarr reachable in this interpreter).
     """
     if getattr(args, "no_era5", False):
         print("[scores] ERA5 reference skipped: --no-era5")
         return None
+    cached = Path(out_dir) / "era5_reference.npz"
+    if cached.exists():
+        with np.load(cached) as f:
+            z = np.asarray(f["era5"], dtype=float).reshape(-1)
+        n = np.asarray(latlons).shape[0]
+        if z.shape[0] != n:
+            print(f"[scores] ERA5 reference skipped: cached era5_reference.npz has "
+                  f"{z.shape[0]} points, expected {n}")
+            return None
+        print(f"[scores] ERA5 reference loaded from cache {cached.name}")
+        return z
     valid_dt = (regime or {}).get("valid_datetime")
     if not valid_dt:
         print("[scores] ERA5 reference skipped: no valid_datetime in this regime")

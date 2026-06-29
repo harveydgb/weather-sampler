@@ -143,27 +143,64 @@ def _channel_index(dataset, channel):
     return variables.index(channel)
 
 
-def _assert_latlons_match(dataset, sample_latlons):
-    lat = np.asarray(dataset.latitudes, dtype=float).reshape(-1)
-    lon = np.mod(np.asarray(dataset.longitudes, dtype=float).reshape(-1), 360.0)
+def _match_permutation(dataset, sample_latlons):
+    """Permutation ``perm`` such that ERA5 row ``perm[i]`` is sample row ``i``.
+
+    The ERA5 stream is the SAME O96 grid as the samples but stored in a
+    different point order (anemoi ring order vs the decoder/token order of the
+    extracted sample npz), so a raw row-for-row comparison sees the full grid
+    span. We recover the exact relabelling by sorting both grids ring-by-ring
+    (snap each array's latitudes to its own 192 Gaussian-ring values, then sort
+    by longitude within the ring) and pairing the sorted sequences.
+
+    This is a pure REORDER of identical points -- NO regrid, NO interpolation.
+    The strict same-grid gate is preserved: raises ``Era5ReferenceUnavailable``
+    if the point counts differ, if any matched pair is farther apart than
+    ``LATLON_MATCH_TOL_DEG`` (=> genuinely different grid, cut criterion C4), or
+    if the matching is not a bijection.
+    """
+    elat = np.asarray(dataset.latitudes, dtype=float).reshape(-1)
+    elon = np.mod(np.asarray(dataset.longitudes, dtype=float).reshape(-1), 360.0)
     sample = np.asarray(sample_latlons, dtype=float)
-    if lat.shape[0] != sample.shape[0]:
+    if elat.shape[0] != sample.shape[0]:
         raise Era5ReferenceUnavailable(
-            f"ERA5 grid has {lat.shape[0]} points, samples have {sample.shape[0]}"
+            f"ERA5 grid has {elat.shape[0]} points, samples have {sample.shape[0]}"
         )
     slat = sample[:, 0]
     slon = np.mod(sample[:, 1], 360.0)
-    dlat = np.max(np.abs(lat - slat))
-    dlon = np.max(np.abs((lon - slon + 180.0) % 360.0 - 180.0))
+
+    def _key_order(lat, lon):
+        # Order by (lat, lon) on coarse keys: rounding to 1e-4 deg absorbs the
+        # float32<->float64 storage jitter (grid spacing is ~0.9 deg, so distinct
+        # points never share a key), and folding lon mod 360 after rounding keeps
+        # a 0 deg point that jittered to ~359.9999 next to 0, not at the ring end.
+        klat = np.round(lat, 4)
+        klon = np.mod(np.round(np.mod(lon, 360.0), 4), 360.0)
+        return np.lexsort((klon, klat))
+
+    order_e = _key_order(elat, elon)
+    order_s = _key_order(slat, slon)
+    inv_s = np.empty_like(order_s)
+    inv_s[order_s] = np.arange(order_s.size)
+    perm = order_e[inv_s]
+
+    dlat = np.max(np.abs(elat[perm] - slat))
+    dlon = np.max(np.abs((elon[perm] - slon + 180.0) % 360.0 - 180.0))
     if dlat > LATLON_MATCH_TOL_DEG or dlon > LATLON_MATCH_TOL_DEG:
         raise Era5ReferenceUnavailable(
-            f"ERA5 latlons do not match sample latlons row-for-row "
+            f"ERA5 grid is not the sample O96 grid after ring alignment "
             f"(max dlat={dlat:.3g}, dlon={dlon:.3g} deg) -- NO regrid is performed"
         )
+    if not np.array_equal(np.sort(perm), np.arange(perm.size)):
+        raise Era5ReferenceUnavailable(
+            "ERA5<->sample point matching is not a bijection (duplicate grid points?)"
+        )
+    return perm
 
 
 def load_era5_2t_on_o96(valid_datetime, sample_latlons, *, channel="2t",
-                        standardise="own", zarr_path=None, meta_dir=None):
+                        standardise="own", zarr_path=None, meta_dir=None,
+                        norm_mean=None, norm_std=None):
     """Read ERA5 2t for one valid datetime on the native O96 grid.
 
     HARD GATE: the zarr must open, ``valid_datetime`` must be present on the 6h
@@ -172,19 +209,22 @@ def load_era5_2t_on_o96(valid_datetime, sample_latlons, *, channel="2t",
     failure (caller skips the ERA5 series; cut criterion C4).
 
     ``standardise='own'`` subtracts the spatial mean and divides by the spatial
-    std (shape-only comparison; amplitude is confounded by missing
-    de-standardisation, audit S1). The monopole is dropped in the transform, so
-    the offset is irrelevant either way. If ``meta_dir`` is given, an
-    ``era5_ref_meta.json`` provenance sidecar is written there.
+    std (shape-only comparison). ``standardise='stream'`` uses stream stats from
+    the anemoi dataset, if exposed. ``standardise='meta'`` uses the forecast
+    extraction metadata normalisation (``norm_mean_channel``/``norm_std_channel``)
+    so the ERA5 map shares the same colour scale as decoder-normalised fields.
+    If ``meta_dir`` is given, an ``era5_ref_meta.json`` provenance sidecar is
+    written there.
     """
-    if standardise not in ("own", "stream"):
-        raise ValueError("standardise must be 'own' or 'stream'")
+    if standardise not in ("own", "stream", "meta"):
+        raise ValueError("standardise must be 'own', 'stream' or 'meta'")
 
     zarr_path = resolve_zarr_path(zarr_path)
     dataset = _open_anemoi(zarr_path)
     t = _time_index(dataset, valid_datetime)
     v = _channel_index(dataset, channel)
-    _assert_latlons_match(dataset, sample_latlons)
+    # Same O96 grid, possibly a different point order -> exact reorder (no regrid).
+    perm = _match_permutation(dataset, sample_latlons)
 
     # anemoi datasets index as ds[time] -> [variable, ensemble, cell]; take the
     # first ensemble member. Squeeze defensively for layout variants.
@@ -195,6 +235,8 @@ def load_era5_2t_on_o96(valid_datetime, sample_latlons, *, channel="2t",
         # Fall back through an explicit [var, ens, cell] view.
         arr3 = arr.reshape(len(dataset.variables), -1, np.asarray(sample_latlons).shape[0])
         field = np.asarray(arr3[v, 0], dtype=float).reshape(-1)
+    # Relabel ERA5's native ring order into the sample's row order.
+    field = field[perm]
 
     if standardise == "own":
         mean = float(np.mean(field))
@@ -202,19 +244,29 @@ def load_era5_2t_on_o96(valid_datetime, sample_latlons, *, channel="2t",
         if std <= 0:
             raise Era5ReferenceUnavailable("ERA5 field has zero spatial variance")
         z = (field - mean) / std
-    else:  # 'stream' normalisation -- only if trivially recoverable
+    elif standardise == "stream":  # only if trivially recoverable
         stats = getattr(dataset, "statistics", None)
         if not stats or "mean" not in stats or "stdev" not in stats:
             raise Era5ReferenceUnavailable("stream normalisation stats unavailable")
         z = (field - float(stats["mean"][v])) / float(stats["stdev"][v])
+    else:
+        if norm_mean is None or norm_std is None:
+            raise Era5ReferenceUnavailable(
+                "standardise='meta' requires norm_mean and norm_std"
+            )
+        norm_std = float(norm_std)
+        if norm_std <= 0:
+            raise Era5ReferenceUnavailable("metadata norm_std must be positive")
+        z = (field - float(norm_mean)) / norm_std
 
     if meta_dir is not None:
         _write_meta(meta_dir, zarr_path, valid_datetime, channel, standardise,
-                    sample_latlons)
+                    sample_latlons, norm_mean=norm_mean, norm_std=norm_std)
     return z
 
 
-def _write_meta(meta_dir, zarr_path, valid_datetime, channel, standardise, sample_latlons):
+def _write_meta(meta_dir, zarr_path, valid_datetime, channel, standardise, sample_latlons,
+                *, norm_mean=None, norm_std=None):
     ll = np.ascontiguousarray(np.asarray(sample_latlons, dtype=np.float64))
     latlon_hash = hashlib.sha256(ll.tobytes()).hexdigest()
     meta = {
@@ -222,6 +274,8 @@ def _write_meta(meta_dir, zarr_path, valid_datetime, channel, standardise, sampl
         "valid_datetime": str(valid_datetime),
         "channel": channel,
         "standardise": standardise,
+        "norm_mean": None if norm_mean is None else float(norm_mean),
+        "norm_std": None if norm_std is None else float(norm_std),
         "n_points": int(ll.shape[0]),
         "latlon_sha256": latlon_hash,
         "note": "rung-3 direction-of-realism reference, NOT a target (plan S0/S8)",
@@ -238,21 +292,34 @@ def main():  # pragma: no cover - manual smoke entry point
     p.add_argument("--latlons-npz", required=True,
                    help="npz carrying a 'latlons' [N,2] array (the sample grid)")
     p.add_argument("--channel", default="2t")
-    p.add_argument("--standardise", default="own", choices=("own", "stream"))
+    p.add_argument("--standardise", default="own", choices=("own", "stream", "meta"))
+    p.add_argument("--norm-meta-json", default=None,
+                   help="metadata JSON carrying norm_mean_channel/norm_std_channel")
+    p.add_argument("--out-npz", default=None,
+                   help="optional output npz path; writes array as key 'era5'")
     p.add_argument("--zarr-path", default=None)
     p.add_argument("--meta-dir", default=None)
     args = p.parse_args()
 
     with np.load(args.latlons_npz) as f:
         latlons = np.asarray(f["latlons"], dtype=float)
+    norm_mean = norm_std = None
+    if args.norm_meta_json is not None:
+        meta = json.loads(Path(args.norm_meta_json).read_text())
+        norm_mean = meta.get("norm_mean_channel")
+        norm_std = meta.get("norm_std_channel")
     try:
         z = load_era5_2t_on_o96(
             args.valid_datetime, latlons, channel=args.channel,
             standardise=args.standardise, zarr_path=args.zarr_path,
-            meta_dir=args.meta_dir,
+            meta_dir=args.meta_dir, norm_mean=norm_mean, norm_std=norm_std,
         )
     except Era5ReferenceUnavailable as exc:
         raise SystemExit(f"ERA5 reference unavailable: {exc}")
+    if args.out_npz is not None:
+        out = Path(args.out_npz)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(out, era5=z)
     print(f"loaded ERA5 {args.channel} @ {args.valid_datetime}: "
           f"N={z.shape[0]}, mean={z.mean():.3g}, std={z.std():.3g}")
 

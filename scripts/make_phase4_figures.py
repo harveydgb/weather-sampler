@@ -14,7 +14,7 @@ Writes to outputs/figures/:
                                  + ERA5 direction reference if available)
   phase_4_bimodal_enrichment.png W1 MUST: dNLL>0.125 enrichment in the audit
                                  S4 bimodal masks + Mollweide dNLL map
-  phase_4_robustness.png         unary-gap histogram (why the Method 4 beta
+  phase_4_robustness.png         unary-gap histogram (why the Mode-selection MRF beta
                                  sweep is pinned) + unit-vs-weighted-graph
                                  matched-coherence points (needs
                                  robustness_probes.json from
@@ -37,8 +37,27 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from sampler_research.faithfulness import bootstrap_cell_statistic
 from sampler_research.io import load_real_marginal
-from sampler_research.plotting import plot_mollweide_fields, plot_spectra, plot_variograms
+from sampler_research.plotting import (
+    _draw_robinson_coastlines,
+    _draw_robinson_frame,
+    _robinson_project,
+    _segment_arrows,
+    display_name,
+    field_style,
+    plot_mollweide_fields,
+    plot_spectra,
+    plot_variograms,
+)
+
+# Within-field spatial-bootstrap settings, kept identical to the macro pipeline
+# (scripts/emit_report_results.py BOOT_*) so the figure's bimodal smear-tail CIs
+# match the \fcBimodalFrac* macros draw-for-draw.
+BOOT_THRESHOLD = 0.125
+BOOT_N_DRAWS = 2000
+BOOT_SEED = 0
+BOOT_CI = 0.95
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUN_DIR = REPO_ROOT / "outputs" / "runs" / "phase_4_real"
@@ -49,6 +68,36 @@ DATA_NPZ = REPO_ROOT / "outputs" / "data" / "phase_4_real_2t.npz"
 def _load_rows():
     with open(RUN_DIR / "scores.csv") as fh:
         return list(csv.DictReader(fh))
+
+
+def _bimodal_frac_ci(name):
+    """Within-field spatial-bootstrap CI of frac(dNLL > 0.125) over the bimodal
+    stratum for one field key, from this run's delta_per_cell.npz + masks.npz.
+
+    Returns a ``bootstrap_cell_statistic`` record (``point``/``lo``/``hi``) or
+    ``None`` if the artifacts/mask are absent. Uses the same draws/seed/threshold
+    as the macro pipeline, so the figure and the \\fcBimodalFrac* macros agree.
+    """
+
+    delta_path = RUN_DIR / "delta_per_cell.npz"
+    masks_path = RUN_DIR / "masks.npz"
+    if not (delta_path.exists() and masks_path.exists()):
+        return None
+    with np.load(delta_path) as f:
+        if name not in f.files:
+            return None
+        d = np.asarray(f[name], dtype=float)
+    with np.load(masks_path) as f:
+        if "bimodal" not in f.files:
+            return None
+        mask = np.asarray(f["bimodal"], dtype=bool)
+    vals = d[mask]
+    if vals.size == 0:
+        return None
+    return bootstrap_cell_statistic(
+        vals, lambda v: float(np.mean(v > BOOT_THRESHOLD)),
+        n_boot=BOOT_N_DRAWS, ci=BOOT_CI, rng=np.random.default_rng(BOOT_SEED),
+    )
 
 
 def _regime_label():
@@ -83,15 +132,32 @@ def _mollweide_scatter(ax, latlons, values, title, cmap="viridis", vmin=None, vm
     return sc
 
 
+def _robinson_scatter(ax, latlons, values, title, cmap="viridis", vmin=None, vmax=None):
+    x, y = _robinson_project(latlons[:, 1], latlons[:, 0])
+    _draw_robinson_frame(ax)
+    sc = ax.scatter(
+        x, y, c=values, s=0.5, cmap=cmap, vmin=vmin, vmax=vmax,
+        rasterized=True, zorder=2,
+    )
+    _draw_robinson_coastlines(ax)
+    ax.set_title(title, fontsize=10, pad=10)
+    ax.set_facecolor("0.96")
+    ax.set_aspect("equal")
+    ax.set_xlim(-2.75, 2.75)
+    ax.set_ylim(-1.42, 1.42)
+    ax.axis("off")
+    return sc
+
+
 def fig_maps(latlons, star):
     fields = {}
     with np.load(RUN_DIR / "anchors.npz") as f:
-        fields["MAP anchor"] = f["mode_map"]
-        fields["iid draw (seed 0)"] = f["iid_seed0"]
+        fields[display_name("mode_map")] = f["mode_map"]
+        fields[display_name("iid_seed0")] = f["iid_seed0"]
     with np.load(RUN_DIR / "method1_sensitivity.npz") as f:
-        fields[f"Method 1 @ lambda*={star['lambda_star']:.0f}"] = f["field_star"]
+        fields[f"Joint MAP ($\\lambda^\\star$={star['lambda_star']:.0f})"] = f["field_star"]
     with np.load(RUN_DIR / "anchors.npz") as f:
-        fields["smoothed-MAP (n=10)"] = f["smoothed_map_n10"]
+        fields["Smoothed MAP (n=10)"] = f["smoothed_map_n10"]
     m4_path = RUN_DIR / "method4_sweep.npz"
     if m4_path.exists():
         rows = _load_rows()
@@ -101,7 +167,11 @@ def fig_maps(latlons, star):
             nearest = min(m4_rows, key=lambda r: abs(float(r["r_tilde"]) - star_rt))
             with np.load(m4_path) as f:
                 idx = int(np.argmin(np.abs(f["betas"] - float(nearest["param"]))))
-                fields[f"Method 4 @ beta={nearest['param']}"] = f["fields"][idx]
+                fields[f"Mode-selection MRF ($\\beta$={nearest['param']})"] = f["fields"][idx]
+    era5_path = RUN_DIR / "era5_reference.npz"
+    if era5_path.exists():
+        with np.load(era5_path) as f:
+            fields["ERA5 reference"] = f["era5"]
     fig, _ = plot_mollweide_fields(
         latlons, fields,
         suptitle=(
@@ -121,64 +191,165 @@ def fig_pareto_smear(star):
     m4 = sorted((r for r in rows if r["kind"] == "method4"), key=lambda r: float(r["param"]))
     star_row = next((r for r in rows if r["name"] == "m1_star"), None)
 
+    m1_colour = field_style("m1_star")[0]
+    m4_colour = field_style("m4_beta1")[0]
+
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.5, 4.6))
 
-    # Left: Pareto plane, log R~ axis (R~ is trend-compressed on the real grid).
+    # Left: Pareto plane; R~ is trend-compressed on the real grid.
     ax1.plot(
         [float(r["r_tilde"]) for r in m1], [float(r["nll_over_n"]) for r in m1],
-        "o-", color="tab:blue", label="Method 1 (lambda sweep)",
+        "o-", color=m1_colour, label="Joint MAP ($\\lambda$ sweep)",
     )
-    if m4:
-        ax1.plot(
-            [float(r["r_tilde"]) for r in m4], [float(r["nll_over_n"]) for r in m4],
-            "s--", color="tab:green", label="Method 4 (beta sweep)",
-        )
+    # Anchors keyed by the shared field_style; omit the iid draw here so the
+    # linear axis resolves the method/blur regime instead of the noise-floor tail.
     for r in anchors:
-        ax1.scatter(float(r["r_tilde"]), float(r["nll_over_n"]), marker="*", s=110, zorder=5)
-        ax1.annotate(r["name"], (float(r["r_tilde"]), float(r["nll_over_n"])),
-                     fontsize=7, xytext=(4, 4), textcoords="offset points")
+        name = r["name"]
+        if name.startswith("iid_seed"):
+            continue
+        colour, marker, _ = field_style(name)
+        x, y = float(r["r_tilde"]), float(r["nll_over_n"])
+        ax1.scatter(x, y, marker=marker, s=70, color=colour, zorder=5)
+        _lkw = ({"xytext": (-4, 7), "ha": "right"} if name == "mixture_mean"
+                else {"xytext": (10, 8), "ha": "right"} if name == "mode_map"
+                else {"xytext": (4, 4), "ha": "left"})
+        ax1.annotate(display_name(name), (x, y),
+                     fontsize=7, textcoords="offset points", **_lkw)
+    if m4:
+        r0 = m4[-1]
+        ax1.scatter(float(r0["r_tilde"]), float(r0["nll_over_n"]),
+                    marker="o", s=70, color=m4_colour, zorder=5,
+                    label="Mode-selection MRF")
     if star_row is not None:
+        colour, marker, _ = field_style("m1_star")
         ax1.scatter(float(star_row["r_tilde"]), float(star_row["nll_over_n"]),
-                    marker="D", s=70, color="tab:red", zorder=6, label="M1 @ lambda*")
+                    marker=marker, s=90, color=colour, edgecolor="k", linewidth=0.6,
+                    zorder=6, label="Joint MAP @ $\\lambda^\\star$")
     ax1.axvline(star["target_r_tilde"], color="grey", lw=0.8, ls=":",
-                label="smoothed-MAP n10 R~ (target)")
-    ax1.set_xscale("log")
-    ax1.set_xlabel("R~ = S_edge / Var_V (log axis)")
-    ax1.set_ylabel("NLL/N (nats; negative on standardised data)")
-    ax1.set_title("Faithfulness vs declared coherence")
+                label="Smoothed MAP $\\tilde{R}$ target")
+    ax1.set_xscale("linear")
+    ax1.set_xlabel("Normalised Roughness ($\\tilde{R}$)")
+    ax1.set_ylabel("NLL/N (nats)")
+    ax1.set_title("Faithfulness–coherence plane (lower-left is better)")
     ax1.legend(fontsize=7)
 
     # Right: smear fraction vs R~ -- the panel the bare Pareto cannot show.
-    for series, suffix, ls in ((m1, "", "-"), (m1, "__bimodal", "--")):
+    for suffix, ls, tag in (("", "-", "global"), ("__bimodal", "--", "bimodal stratum")):
         ax2.plot(
-            [float(r["r_tilde"]) for r in series],
-            [float(r[f"dnll_frac_gt_0p125{suffix}"]) for r in series],
-            "o" + ls, color="tab:blue",
-            label=f"Method 1 {'bimodal stratum' if suffix else 'global'}",
+            [float(r["r_tilde"]) for r in m1],
+            [float(r[f"dnll_frac_gt_0p125{suffix}"]) for r in m1],
+            "o" + ls, color=m1_colour, label=f"Joint MAP — {tag}",
         )
     if m4:
-        for suffix, ls in (("", "-"), ("__bimodal", "--")):
-            ax2.plot(
-                [float(r["r_tilde"]) for r in m4],
-                [float(r[f"dnll_frac_gt_0p125{suffix}"]) for r in m4],
-                "s" + ls, color="tab:green",
-                label=f"Method 4 {'bimodal stratum' if suffix else 'global'}",
-            )
+        ax2.plot(
+            [float(r["r_tilde"]) for r in m4],
+            [float(r["dnll_frac_gt_0p125"]) for r in m4],
+            "o-", color=m4_colour, label="Mode-selection MRF",
+        )
+    # Global anchors (one star each, shared field_style colour); omit iid as above.
     for r in anchors:
-        if r["name"] in ("smoothed_map_n10", "iid_seed0", "mode_map"):
-            ax2.scatter(float(r["r_tilde"]), float(r["dnll_frac_gt_0p125"]),
-                        marker="*", s=110, zorder=5)
-            ax2.annotate(r["name"], (float(r["r_tilde"]), float(r["dnll_frac_gt_0p125"])),
-                         fontsize=7, xytext=(4, 4), textcoords="offset points")
-    ax2.axvline(star["target_r_tilde"], color="grey", lw=0.8, ls=":")
-    ax2.set_xscale("log")
-    ax2.set_xlabel("R~ (log axis)")
-    ax2.set_ylabel("fraction of cells with dNLL > 0.125 nats")
-    ax2.set_title("Smear tail vs coherence (global and bimodal)")
-    ax2.legend(fontsize=7)
+        name = r["name"]
+        if name not in ("smoothed_map_n10", "mode_map"):
+            continue
+        colour, marker, _ = field_style(name)
+        x, y = float(r["r_tilde"]), float(r["dnll_frac_gt_0p125"])
+        ax2.scatter(x, y, marker=marker, s=70, color=colour, zorder=5)
+        _lkw2 = ({"xytext": (-4, 7), "ha": "right"}
+                 if name == "mode_map"
+                 else {"xytext": (4, 4), "ha": "left"})
+        ax2.annotate(display_name(name), (x, y),
+                     fontsize=7, textcoords="offset points", **_lkw2)
 
-    fig.suptitle(_regime_label(), fontsize=10)
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    # Headline matched-R~ comparison IN the bimodal stratum, with within-field
+    # spatial-bootstrap CIs (same draws as the \fcBimodalFrac* macros). This is
+    # the comparison the chapter leads with; without the blur's bimodal point and
+    # the CIs the panel cannot actually show it.
+    blur_row = next((r for r in anchors if r["name"] == "smoothed_map_n10"), None)
+    m1_ci = _bimodal_frac_ci("m1_star")
+    blur_ci = _bimodal_frac_ci("smoothed_map_n10")
+    if star_row is not None and m1_ci is not None:
+        x = float(star_row["r_tilde"])
+        ax2.errorbar(
+            x, m1_ci["point"],
+            yerr=[[m1_ci["point"] - m1_ci["lo"]], [m1_ci["hi"] - m1_ci["point"]]],
+            fmt="o", ms=8, color=m1_colour, ecolor=m1_colour, capsize=3,
+            markeredgecolor="k", markeredgewidth=0.6, zorder=7,
+            label="Joint MAP @ $\\lambda^\\star$ (bimodal, 95% CI)",
+        )
+    if blur_row is not None and blur_ci is not None:
+        x = float(blur_row["r_tilde"])
+        colour, marker, _ = field_style("smoothed_map_n10")
+        ax2.errorbar(
+            x, blur_ci["point"],
+            yerr=[[blur_ci["point"] - blur_ci["lo"]], [blur_ci["hi"] - blur_ci["point"]]],
+            fmt=marker, ms=9, color=colour, ecolor=colour, capsize=3,
+            markeredgecolor="k", markeredgewidth=0.6, zorder=7,
+            label="Smoothed MAP (bimodal, 95% CI)",
+        )
+        ax2.annotate("Smoothed MAP\n(bimodal)", (x, blur_ci["point"]),
+                     fontsize=7, textcoords="offset points", xytext=(4, 4), ha="left")
+    ax2.axvline(star["target_r_tilde"], color="grey", lw=0.8, ls=":")
+    ax2.set_xscale("linear")
+    ax2.set_xlabel("Normalised Roughness ($\\tilde{R}$)")
+    ax2.set_ylabel("Fraction of Cells with $\\Delta$NLL > 0.125 nats")
+    ax2.set_title("Smear tail vs coherence")
+    ax2.legend(fontsize=6.5)
+
+    fig.suptitle(
+        _regime_label()
+        .replace("forecast regime", "Forecast Regime")
+        .replace("reconstruction regime", "Reconstruction Regime"),
+        fontsize=12,
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.975))
+
+    # House-style sweep treatment (shared with the toy Phase-2 figures): outline
+    # direction arrows + first / best / last lambda labels on Method 1 only. The
+    # Mode-selection MRF beta sweep is omitted here -- it is degenerate at +48h
+    # (constant R~, see caption), so arrows/labels would be meaningless. Added
+    # after tight_layout so the transforms (and hence arrow angles) are final.
+    m1_r = [float(r["r_tilde"]) for r in m1]
+    m1_nll = [float(r["nll_over_n"]) for r in m1]
+    m1_global = [float(r["dnll_frac_gt_0p125"]) for r in m1]
+    m1_bimodal = [float(r["dnll_frac_gt_0p125__bimodal"]) for r in m1]
+    lam_first = float(m1[0]["param"])
+    lam_last = float(m1[-1]["param"])
+
+    def _plabel(ax, x, y, text, *, xytext, ha="left", va="center", bold=False):
+        ax.annotate(
+            text, (float(x), float(y)), fontsize=7, color=m1_colour,
+            fontweight="bold" if bold else "normal",
+            xytext=xytext, textcoords="offset points", ha=ha, va=va,
+            bbox=dict(facecolor="white", edgecolor="none", alpha=0.8, pad=0.8),
+            zorder=11,
+        )
+
+    star_lbl = (f"$\\lambda^\\star\\!\\approx\\!{float(star_row['param']):.0f}$"
+                if star_row is not None else None)
+
+    # Left panel: Pareto plane.
+    _segment_arrows(ax1, m1_r, m1_nll, m1_colour, n_arrows=2, outline=True)
+    _plabel(ax1, m1_r[0], m1_nll[0], f"$\\lambda={lam_first:g}$",
+            xytext=(6, -1), ha="left", va="top")
+    _plabel(ax1, m1_r[-1], m1_nll[-1], f"$\\lambda={lam_last:g}$",
+            xytext=(8, 0), ha="left", va="center")
+    if star_row is not None:
+        _plabel(ax1, float(star_row["r_tilde"]), float(star_row["nll_over_n"]),
+                star_lbl, xytext=(0, -10), ha="center", va="top", bold=True)
+
+    # Right panel: smear tail, both Method-1 curves (global solid, bimodal dashed).
+    _segment_arrows(ax2, m1_r, m1_global, m1_colour, n_arrows=2, outline=True)
+    _segment_arrows(ax2, m1_r, m1_bimodal, m1_colour, n_arrows=2, outline=True)
+    _plabel(ax2, m1_r[0], m1_global[0], f"$\\lambda={lam_first:g}$",
+            xytext=(15, 0), ha="center", va="center")
+    _plabel(ax2, m1_r[-1], m1_global[-1], f"$\\lambda={lam_last:g}$",
+            xytext=(23, 0), ha="center", va="center")
+    _plabel(ax2, m1_r[-1], m1_bimodal[-1], f"$\\lambda={lam_last:g}$",
+            xytext=(3, 10), ha="center", va="center")
+    if star_row is not None and m1_ci is not None:
+        _plabel(ax2, float(star_row["r_tilde"]), m1_ci["point"], star_lbl,
+                xytext=(0, -10), ha="center", va="top", bold=True)
+
     fig.savefig(FIG_DIR / "phase_4_pareto_smear.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("wrote phase_4_pareto_smear.png")
@@ -222,13 +393,11 @@ def fig_spectrum():
         lmax_resolved = int(f["lmax_resolved"]) if "lmax_resolved" in f.files else int(ell[-1])
         spectra = {k: f[k] for k in f.files if k not in ("ell", "lmax_resolved")}
     has_era5 = "era5" in spectra
-    title = (
-        f"Angular power spectrum $C_\\ell$ (native O96 SHT; resolved $\\ell\\in[1,"
-        f"{lmax_resolved}]$)\nrung-3 bracket — reference, not a target"
-    )
-    fig, ax = plot_spectra(ell, spectra, title=title)
+    fig, ax = plot_spectra(ell, spectra,
+                           title="Angular Power Spectrum ($C_\\ell$)")
     ax.set_xlim(1, lmax_resolved)
-    fig.suptitle(_regime_label(), fontsize=9, y=1.02)
+    ax.set_xlabel("Angular Degree ($\\ell$)")
+    ax.set_ylabel("$C_\\ell$ (Resolved Band)")
     fig.savefig(FIG_DIR / "phase_4_spectrum.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("wrote phase_4_spectrum.png" + (" (with ERA5 reference)" if has_era5 else ""))
@@ -242,13 +411,23 @@ def fig_bimodal_enrichment(latlons, star):
         deltas = {k: f[k] for k in f.files}
 
     names = ["iid_seed0", "smoothed_map_n10", "m1_star", "m1_star_double"]
-    names += [n for n in deltas if n.startswith("m4_beta")][-1:]
     names = [n for n in names if n in deltas]
 
+    def bar_tick_label(name):
+        return {
+            "iid_seed0": "Independent\nDraw",
+            "smoothed_map_n10": "Smoothed\nMAP",
+            "m1_star": "Joint\nMAP",
+            "m1_star_double": "Joint MAP\n(2$\\lambda$)",
+            "m4_beta1": "Mode-selection\nMRF",
+        }.get(name, display_name(name).replace(" ", "\n"))
+
     fig = plt.figure(figsize=(13, 4.6))
-    ax1 = fig.add_subplot(1, 2, 1)
+    grid = fig.add_gridspec(1, 3, width_ratios=[1.0, 1.18, 0.045], wspace=0.28)
+    ax1 = fig.add_subplot(grid[0, 0])
     width = 0.35
     xs = np.arange(len(names))
+    zero_smear = {n: float(np.mean(deltas[n] > 0.125)) == 0 for n in names}
     for offset, (mask, label) in enumerate(
         (
             (bimodal_1s, f"bimodal >1 sigma ({int(bimodal_1s.sum()):,} cells)"),
@@ -260,27 +439,37 @@ def fig_bimodal_enrichment(latlons, star):
             d = deltas[n]
             global_frac = float(np.mean(d > 0.125))
             mask_frac = float(np.mean(d[mask] > 0.125))
-            enrich.append(mask_frac / global_frac if global_frac > 0 else np.nan)
+            enrich.append(mask_frac / global_frac if global_frac > 0 else 0.0)
         ax1.bar(xs + (offset - 0.5) * width, enrich, width, label=label)
     ax1.axhline(1.0, color="grey", lw=0.8, ls=":")
+    for i, n in enumerate(names):
+        if zero_smear[n]:
+            ax1.text(xs[i], 0.05, "no smear\ncells", ha="center", va="bottom",
+                     fontsize=6, color="grey", style="italic")
     ax1.set_xticks(xs)
-    ax1.set_xticklabels(names, rotation=20, ha="right", fontsize=8)
-    ax1.set_ylabel("enrichment of dNLL > 0.125 cells\n(in-mask frac / global frac)")
-    ax1.set_title("Smear concentrates on the bimodal subset")
+    ax1.set_xticklabels([bar_tick_label(n) for n in names], rotation=0,
+                        ha="center", fontsize=8)
+    ax1.tick_params(axis="x", pad=4)
+    ax1.set_ylabel("enrichment of $\\Delta$NLL > 0.125 cells\n(in-mask frac / global frac)")
+    ax1.set_title("Smear Concentrates on the Bimodal Subset")
     ax1.legend(fontsize=8)
 
-    ax2 = fig.add_subplot(1, 2, 2, projection="mollweide")
+    ax2 = fig.add_subplot(grid[0, 1])
+    cbar_ax = fig.add_subplot(grid[0, 2])
     d = deltas["m1_star"]
-    sc = _mollweide_scatter(
+    sc = _robinson_scatter(
         ax2, latlons, np.log10(np.maximum(d, 1e-6)),
-        f"log10 dNLL-to-best-mode, Method 1 @ lambda*={star['lambda_star']:.0f}",
-        cmap="magma", vmin=-4, vmax=1,
+        "Log$_{10}$ $\\Delta$NLL-To-Best-Mode "
+        f"(Joint MAP [$\\lambda^\\star$={star['lambda_star']:.0f}])",
+        cmap="viridis", vmin=-4, vmax=1,
     )
-    fig.colorbar(sc, ax=ax2, orientation="horizontal", pad=0.05, shrink=0.8,
-                 label="log10 dNLL (nats)")
+    fig.colorbar(sc, cax=cbar_ax, orientation="vertical",
+                 label="Log10 dNLL (nats)")
 
-    fig.suptitle(_regime_label(), fontsize=10)
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    regime_title = _regime_label().replace("forecast regime", "Forecast Regime")
+    regime_title = regime_title.replace(" h lead", " h Lead")
+    fig.suptitle(regime_title, fontsize=10, y=0.97)
+    fig.subplots_adjust(left=0.06, right=0.965, bottom=0.16, top=0.84)
     fig.savefig(FIG_DIR / "phase_4_bimodal_enrichment.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("wrote phase_4_bimodal_enrichment.png")
@@ -312,7 +501,7 @@ def fig_robustness(star):
     ax1.set_xlabel("unary gap, 2nd-best minus best mode (nats)")
     ax1.set_ylabel(f"multi-mode cells (n = {int(multi.sum()):,})")
     ax1.set_title(
-        "Near-one-hot unary gaps pin the Method 4 sweep\n"
+        "Near-one-hot unary gaps pin the Mode-selection MRF sweep\n"
         f"(even beta=100 moves only {beta100['cells_moved_off_unary_best']} of "
         f"{probes['m4_beta_scale']['n_cells']:,} cells)",
         fontsize=10,
@@ -324,15 +513,15 @@ def fig_robustness(star):
     unit_star = next(r for r in rows if r["name"] == "m1_star")
     w = probes["weighted_graph"]
     points = [
-        ("smoothed-MAP n10", float(unit_blur["r_tilde"]), float(unit_blur["nll_over_n"]),
+        ("Smoothed MAP", float(unit_blur["r_tilde"]), float(unit_blur["nll_over_n"]),
          float(unit_blur["dnll_frac_gt_0p125"]), "tab:orange", "o"),
-        (f"M1 @ lambda*={star['lambda_star']:.0f}", float(unit_star["r_tilde"]),
+        (f"Joint MAP @ $\\lambda^\\star$={star['lambda_star']:.0f}", float(unit_star["r_tilde"]),
          float(unit_star["nll_over_n"]),
          float(unit_star["dnll_frac_gt_0p125"]), "tab:blue", "o"),
-        ("smoothed-MAP n10 (w)", w["smoothed_map_n10_weighted"]["r_tilde"],
+        ("Smoothed MAP (weighted)", w["smoothed_map_n10_weighted"]["r_tilde"],
          w["smoothed_map_n10_weighted"]["nll_over_n"],
          w["smoothed_map_n10_weighted"]["dnll_frac_gt_0p125"], "tab:orange", "s"),
-        (f"M1 @ lambda*_w={w['lambda_star_weighted']:.0f} (w)",
+        (f"Joint MAP @ $\\lambda^\\star$={w['lambda_star_weighted']:.0f} (weighted)",
          w["m1_at_lambda_star_weighted"]["r_tilde"],
          w["m1_at_lambda_star_weighted"]["nll_over_n"],
          w["m1_at_lambda_star_weighted"]["dnll_frac_gt_0p125"], "tab:blue", "s"),
@@ -349,7 +538,7 @@ def fig_robustness(star):
     ax2.set_xlabel("R~ (unit-weight metric, log axis)")
     ax2.set_ylabel("NLL/N (nats)")
     ax2.set_title(
-        "Edge-weight convention robustness: Method 1 beats the blur\n"
+        "Edge-weight convention robustness: Joint MAP beats the blur\n"
         "at matched coherence under both conventions (circle = unit, square = weighted)",
         fontsize=10,
     )

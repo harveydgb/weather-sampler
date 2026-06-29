@@ -251,7 +251,17 @@ def aggregate_converged_faith(per_init):
     return out
 
 
-def make_figure(rows, payloads, label, fig_path):
+def make_figure(rows, payloads, label, fig_path, cov90_spread=None):
+    """Two-panel faithfulness-vs-lambda figure for one run.
+
+    ``cov90_spread`` (optional): ``{step: (mean, lo, hi)}`` across-init central-90%
+    coverage summary (Option A), built from the ``kind='init_mean'`` aggregate
+    rows. When given, one error bar per headline lead is drawn at
+    ``(lambda*, mean)`` spanning the across-init ``[min, max]`` -- the real-only
+    analogue of the softening figure's across-init band. Single-init runs (6ep)
+    pass ``None`` so no bar is drawn.
+    """
+
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -280,11 +290,23 @@ def make_figure(rows, payloads, label, fig_path):
         if ls_star:
             ax1.axvline(ls_star, color=c, lw=0.8, ls=":")
             ax2.axvline(ls_star, color=c, lw=0.8, ls=":")
+        # Across-init range (Option A): one error bar at (lambda*, mean cov90)
+        # spanning the [min, max] over the 12 inits. Labelled once, on the
+        # headline +48h lead (headline[0]); the +6h bar shares the colour code.
+        if cov90_spread and ls_star and step in cov90_spread:
+            mean, lo, hi = cov90_spread[step]
+            if None not in (mean, lo, hi):
+                ax1.errorbar(
+                    [ls_star], [mean], yerr=[[mean - lo], [hi - mean]],
+                    fmt="o", color=c, ms=7, mec="k", mew=0.7, capsize=4,
+                    elinewidth=1.4, zorder=7,
+                    label="across-init range (12 inits)" if step == headline[0] else None,
+                )
     ax1.axhline(0.9, color="grey", lw=0.8, ls=":", label="iid do-no-harm (0.90)")
     ax1.axhline(0.5, color="grey", lw=0.8, ls=":")
     ax1.set_xscale("log")
     ax1.set_xlabel("$\\lambda$ (log axis; dotted = $\\lambda^\\star$)")
-    ax1.set_ylabel("Method 1 marginal-position coverage")
+    ax1.set_ylabel("Joint MAP marginal-position coverage")
     ax1.set_title("Faithfulness vs regularisation strength\n(marginal position, not calibration)")
     ax1.legend(fontsize=7)
     ax1.grid(alpha=0.3)
@@ -328,6 +350,7 @@ def main():
 
     all_rows = []
     converged_per_init = []
+    pending_figs = []  # (label, column, fig_rows, payloads, fig_path); drawn post-agg
     for prefix, label, column, kind, make_fig in plan:
         rows, fig_rows, payloads = rows_for_prefix(
             prefix, label, column, kind,
@@ -341,9 +364,10 @@ def main():
         if column == CONVERGED_COLUMN:
             converged_per_init.append((prefix, rows))
         if make_fig and fig_rows and not args.no_fig:
+            # Defer rendering: the converged figure's across-init band needs the
+            # aggregate, which is only complete after every init is processed.
             fig_path = args.fig_dir / f"phase_4_forecast_faithfulness_{label}.png"
-            make_figure(fig_rows, payloads, label, fig_path)
-            print(f"[faithfulness] wrote {fig_path}")
+            pending_figs.append((label, column, fig_rows, payloads, fig_path))
 
     agg_rows = aggregate_converged_faith(converged_per_init)
     all_rows.extend(agg_rows)
@@ -353,6 +377,22 @@ def main():
     elif len(converged_per_init) == 1:
         print(f"[faithfulness] only one converged init ({converged_per_init[0][0]}); "
               "no across-init spread yet (rerun B/C to populate it)")
+
+    # Across-init central-90% coverage range (Option A), step -> (mean, lo, hi),
+    # from the kind='init_mean' rows -- only the Converged figure carries it; the
+    # single-init 6ep run gets cov90_spread=None.
+    cov90_spread = {
+        int(r["step"]): (
+            _num(r.get("m1_star_cov90")),
+            _num(r.get("m1_star_cov90_lo")),
+            _num(r.get("m1_star_cov90_hi")),
+        )
+        for r in agg_rows
+    }
+    for label, column, fig_rows, payloads, fig_path in pending_figs:
+        spread = cov90_spread if column == CONVERGED_COLUMN else None
+        make_figure(fig_rows, payloads, label, fig_path, cov90_spread=spread)
+        print(f"[faithfulness] wrote {fig_path}")
 
     if not all_rows:
         raise SystemExit("no faithfulness rows produced; run conversion + the per-lead audit first")

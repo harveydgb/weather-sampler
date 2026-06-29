@@ -1,5 +1,8 @@
 """Plotting helpers for the existing research notebooks."""
 
+from functools import lru_cache
+from pathlib import Path
+
 import numpy as np
 
 
@@ -71,19 +74,74 @@ def plot_mu_slices(mu):
 # siblings sit between; the ERA5 reference is a thin grey dashed line, drawn last
 # so it reads as a reference and not a series (direction-of-realism, NOT a target).
 _FIELD_STYLE = {
-    "iid_seed0": ("tab:red", "o", "-"),          # over-noisy white floor (upper)
-    "mixture_mean": ("tab:purple", "v", "-"),    # over-smooth extreme (lower)
-    "mode_map": ("0.45", "s", "--"),
-    "smoothed_map_n10": ("tab:orange", "^", "--"),
-    "m1_star": ("tab:blue", "D", "-"),
-    "m4_beta1": ("tab:green", "P", "--"),
+    "iid_seed0": ("black", "^", "-"),            # over-noisy white floor (upper)
+    "iid_seed1": ("black", "^", "-"),            # same baseline, extra seed
+    "iid_seed2": ("black", "^", "-"),            # same baseline, extra seed
+    "mode_map": ("black", "s", "--"),
+    "smoothed_map_n5": ("black", "o", ":"),
+    "smoothed_map_n10": ("black", "o", "--"),
+    "smoothed_map_n20": ("black", "o", ":"),
+    "mixture_mean": ("black", "D", "-"),         # over-smooth extreme (lower)
+    "a_star": ("black", "*", "--"),              # smoothest-faithful bracket
+    "m1_star": ("C0", "o", "-"),                 # Joint MAP @ lambda*
+    "m1_star_half": ("C9", "o", "-"),            # Joint MAP @ half lambda*
+    "m1_star_double": ("C4", "o", "-"),          # Joint MAP @ 2x lambda*
+    "m4_beta1": ("C2", "o", "-"),                # Mode-selection MRF @ beta=1
+    "tv_adam": ("C1", "o", "-"),                 # toy TV(Adam) Huber arm (Phase 2)
+    "tv_cut": ("C3", "o", "-"),                  # toy TV(exact) min-cut frontier
 }
 ERA5_KEY = "era5"
 _ERA5_STYLE = ("0.35", None, ":")
 _FALLBACK_CYCLE = [
-    ("tab:cyan", "o", "-"), ("tab:brown", "s", "--"),
-    ("tab:olive", "^", "-"), ("tab:pink", "d", "--"),
+    ("cyan", "o", "-"), ("brown", "s", "--"),
+    ("olive", "^", "-"), ("pink", "d", "--"),
 ]
+_SPECTRUM_COLOUR = {
+    "iid_seed0": "C3",
+    "iid_seed1": "C3",
+    "iid_seed2": "C3",
+    "mode_map": "C4",
+    "smoothed_map_n5": "C8",
+    "smoothed_map_n10": "C8",
+    "smoothed_map_n20": "C8",
+    "mixture_mean": "C1",
+    "a_star": "C9",
+}
+
+# Canonical DISPLAY names: ONE source of truth for every legend label AND the
+# matching term used in the report prose, so figures and text can never drift.
+# The internal artifact keys (iid_seed0, m1_star, ...) stay unchanged across the
+# CSV / macro pipeline; only the human-facing label is mapped here.
+DISPLAY_NAME = {
+    "iid_seed0": "Independent draw",
+    "iid_seed1": "Independent draw (seed 1)",
+    "iid_seed2": "Independent draw (seed 2)",
+    "mode_map": "Per-cell MAP",
+    "smoothed_map_n5": "Smoothed MAP (n=5)",
+    "smoothed_map_n10": "Smoothed MAP",
+    "smoothed_map_n20": "Smoothed MAP (n=20)",
+    "mixture_mean": "Mixture mean",
+    "a_star": "Smoothest faithful ($a^\\star$)",
+    "m1_star": "Joint MAP",
+    "m1_star_half": "Joint MAP ($\\tfrac12\\lambda^\\star$)",
+    "m1_star_double": "Joint MAP ($2\\lambda^\\star$)",
+    "m4_beta1": "Mode-selection MRF",
+    "tv_adam": "TV (Adam)",
+    "tv_cut": "TV (exact)",
+    ERA5_KEY: "ERA5 (reference)",
+}
+
+
+def display_name(name):
+    """Human-facing label for a field key (legend + report).
+
+    Falls back to a humanised form of the key so an unmapped series never breaks
+    a figure. Strips a trailing ``_seedN`` so per-seed iid draws collapse onto
+    the one ``Independent draw`` label when several are plotted together.
+    """
+    if name in DISPLAY_NAME:
+        return DISPLAY_NAME[name]
+    return name.replace("_", " ")
 
 
 def field_style(name, idx=0):
@@ -119,7 +177,7 @@ def plot_variograms(
             ax.plot(centres, values, ls, color=colour, lw=1.0, label="ERA5 (reference)")
         else:
             ax.plot(centres, values, marker=marker, ls=ls, color=colour,
-                    ms=3.5, lw=1.5, label=label)
+                    ms=3.5, lw=1.5, label=display_name(label))
     ax.set_xlabel(xlabel)
     ax.set_ylabel("semivariance")
     ax.set_title(title)
@@ -129,7 +187,7 @@ def plot_variograms(
 
 
 def plot_spectra(ell, spectra, *, title, era5_key=ERA5_KEY):
-    """Log-log angular power spectrum C_l vs degree l for the headline fields.
+    """Linear-x/log-y angular power spectrum C_l vs degree l for the headline fields.
 
     RUNG-3 BRACKET DIAGNOSTIC (not a skill metric, not an optimisation target):
     the iid draw is the over-noisy white floor (upper at high l), the mixture-mean
@@ -144,12 +202,15 @@ def plot_spectra(ell, spectra, *, title, era5_key=ERA5_KEY):
     fig, ax = plt.subplots(figsize=(6.5, 3.8))
     for idx, (label, values) in enumerate(_ordered_items(spectra)):
         colour, marker, ls = field_style(label, idx)
+        colour = _SPECTRUM_COLOUR.get(label, colour)
+        marker = "o"
         if label == era5_key:
-            ax.plot(ell, values, ls, color=colour, lw=1.0, label="ERA5 (reference)")
+            ax.plot(ell, values, marker=marker, ls=ls, color=colour, lw=1.0,
+                    ms=2.4, label="ERA5 (reference)")
         else:
             ax.plot(ell, values, marker=marker, ls=ls, color=colour,
-                    ms=2.8, lw=1.4, label=label)
-    ax.set_xscale("log")
+                    ms=2.8, lw=1.4, label=display_name(label))
+    ax.set_xscale("linear")
     ax.set_yscale("log")
     ax.set_xlabel("angular degree $\\ell$")
     ax.set_ylabel("$C_\\ell$ (resolved band)")
@@ -197,42 +258,292 @@ def plot_pooled_distribution(sample_iid, mean_field):
     return fig, ax
 
 
+def _wrap_longitudes(lons):
+    return ((np.asarray(lons, dtype=float) + 180.0) % 360.0) - 180.0
+
+
+@lru_cache(maxsize=1)
+def _natural_earth_coastline_segments():
+    """Natural Earth 110m coastline segments in wrapped lon/lat degrees."""
+    coastline = (
+        Path(__file__).resolve().parents[3]
+        / "outputs" / "data" / "natural_earth" / "ne_110m_coastline.shp"
+    )
+    if not coastline.exists():
+        return ()
+    try:
+        import shapefile
+    except ImportError:
+        return ()
+
+    segments = []
+    reader = shapefile.Reader(str(coastline))
+    for shape in reader.shapes():
+        points = np.asarray(shape.points, dtype=float)
+        if points.size == 0:
+            continue
+        parts = list(shape.parts) + [len(points)]
+        for start, stop in zip(parts[:-1], parts[1:]):
+            part = points[start:stop]
+            if len(part) < 2:
+                continue
+            lons = _wrap_longitudes(part[:, 0])
+            lats = part[:, 1]
+            breaks = np.where(np.abs(np.diff(lons)) > 180.0)[0] + 1
+            for piece in np.split(np.column_stack([lons, lats]), breaks):
+                if len(piece) >= 2:
+                    segments.append((piece[:, 0], piece[:, 1]))
+    return tuple(segments)
+
+
+_ROBINSON_LAT = np.arange(0, 95, 5, dtype=float)
+_ROBINSON_X = np.array([
+    1.0000, 0.9986, 0.9954, 0.9900, 0.9822, 0.9730, 0.9600, 0.9427, 0.9216,
+    0.8962, 0.8679, 0.8350, 0.7986, 0.7597, 0.7186, 0.6732, 0.6213, 0.5722,
+    0.5322,
+])
+_ROBINSON_Y = np.array([
+    0.0000, 0.0620, 0.1240, 0.1860, 0.2480, 0.3100, 0.3720, 0.4340, 0.4958,
+    0.5571, 0.6176, 0.6769, 0.7346, 0.7903, 0.8435, 0.8936, 0.9394, 0.9761,
+    1.0000,
+])
+_ROBINSON_X_SCALE = 0.8487
+_ROBINSON_Y_SCALE = 1.3523
+
+
+def _robinson_project(lons_deg, lats_deg):
+    lons = _wrap_longitudes(lons_deg)
+    lats = np.asarray(lats_deg, dtype=float)
+    abs_lat = np.clip(np.abs(lats), 0.0, 90.0)
+    x_coef = np.interp(abs_lat, _ROBINSON_LAT, _ROBINSON_X)
+    y_coef = np.interp(abs_lat, _ROBINSON_LAT, _ROBINSON_Y)
+    x = _ROBINSON_X_SCALE * x_coef * np.radians(lons)
+    y = _ROBINSON_Y_SCALE * y_coef * np.sign(lats)
+    return x, y
+
+
+def _draw_robinson_frame(ax):
+    grid_lons = np.linspace(-180.0, 180.0, 361)
+    grid_lats = np.linspace(-90.0, 90.0, 181)
+    for lat in np.arange(-60.0, 90.0, 30.0):
+        x, y = _robinson_project(grid_lons, np.full_like(grid_lons, lat))
+        ax.plot(x, y, color="0.55", lw=0.45, alpha=0.5, zorder=1)
+    for lon in np.arange(-120.0, 180.0, 60.0):
+        x, y = _robinson_project(np.full_like(grid_lats, lon), grid_lats)
+        ax.plot(x, y, color="0.55", lw=0.45, alpha=0.5, zorder=1)
+
+    top_x, top_y = _robinson_project(grid_lons, np.full_like(grid_lons, 90.0))
+    bottom_x, bottom_y = _robinson_project(grid_lons, np.full_like(grid_lons, -90.0))
+    left_x, left_y = _robinson_project(np.full_like(grid_lats, -180.0), grid_lats)
+    right_x, right_y = _robinson_project(np.full_like(grid_lats, 180.0), grid_lats)
+    for x, y in ((top_x, top_y), (right_x, right_y), (bottom_x, bottom_y), (left_x, left_y)):
+        ax.plot(x, y, color="0.15", lw=0.85, alpha=0.85, zorder=4)
+
+
+def _draw_robinson_coastlines(ax):
+    for lons_deg, lats_deg in _natural_earth_coastline_segments():
+        x, y = _robinson_project(lons_deg, lats_deg)
+        ax.plot(x, y, color="0.08", lw=1.05, alpha=0.82, zorder=3)
+
+
 def plot_mollweide_fields(
     latlons_deg,
     fields,
     *,
     suptitle: str,
     cmap: str = "RdBu_r",
+    ncols: int = 3,
 ):
     import matplotlib.pyplot as plt
 
     latlons = np.asarray(latlons_deg, dtype=float)
-    lats_rad = np.radians(latlons[:, 0])
-    lons_rad = np.radians(latlons[:, 1])
+    lons_deg = _wrap_longitudes(latlons[:, 1])
+    x_proj, y_proj = _robinson_project(lons_deg, latlons[:, 0])
     values_for_scale = np.concatenate([np.asarray(values).reshape(-1) for values in fields.values()])
     vmin, vmax = np.percentile(values_for_scale, [2, 98])
+    field_items = list(fields.items())
+    ncols = min(max(1, int(ncols)), len(field_items))
+    nrows = int(np.ceil(len(field_items) / ncols))
 
-    fig, axes = plt.subplots(
-        1,
-        len(fields),
-        figsize=(8 * len(fields), 5),
-        subplot_kw={"projection": "mollweide"},
+    fig = plt.figure(figsize=(4.7 * ncols + 0.55, 2.85 * nrows + 0.25))
+    grid = fig.add_gridspec(
+        nrows,
+        ncols + 1,
+        width_ratios=[1.0] * ncols + [0.055],
+        wspace=0.08,
+        hspace=0.08,
     )
-    axes = np.atleast_1d(axes)
-    for ax, (title, values) in zip(axes, fields.items()):
+    axes_grid = np.empty((nrows, ncols), dtype=object)
+    for row in range(nrows):
+        for col in range(ncols):
+            axes_grid[row, col] = fig.add_subplot(grid[row, col])
+    cbar_ax = fig.add_subplot(grid[:, -1])
+    sc = None
+    for idx, (title, values) in enumerate(field_items):
+        row, col = divmod(idx, ncols)
+        ax = axes_grid[row, col]
+        _draw_robinson_frame(ax)
         sc = ax.scatter(
-            lons_rad,
-            lats_rad,
+            x_proj,
+            y_proj,
             c=np.asarray(values).reshape(-1),
             s=0.5,
             cmap=cmap,
             vmin=vmin,
             vmax=vmax,
             rasterized=True,
+            zorder=2,
         )
+        _draw_robinson_coastlines(ax)
         ax.set_title(title, pad=10)
-        ax.grid(True, lw=0.3, alpha=0.4)
-        fig.colorbar(sc, ax=ax, orientation="horizontal", pad=0.05, label="2t (normalised)", shrink=0.8)
-    fig.suptitle(suptitle, y=1.02, fontsize=13)
-    fig.tight_layout()
-    return fig, axes
+        ax.set_facecolor("0.96")
+        ax.set_aspect("equal")
+        ax.set_xlim(-2.75, 2.75)
+        ax.set_ylim(-1.42, 1.42)
+        ax.axis("off")
+    for ax in axes_grid.reshape(-1)[len(field_items):]:
+        ax.set_visible(False)
+    fig.colorbar(sc, cax=cbar_ax, orientation="vertical", label="2t (normalised)")
+    fig.suptitle(suptitle, y=0.98, fontsize=13)
+    fig.subplots_adjust(left=0.035, right=0.965, bottom=0.06, top=0.89)
+    return fig, axes_grid
+
+
+# --- Sweep-direction arrows and parameter-value labels -----------------------
+# Shared by the toy Phase-2 figures (scripts/make_toy_figures.py) and the real
+# Phase-4 figures (scripts/make_phase4_figures.py) so a parameter sweep reads in
+# the same house style in both: outline-chevron direction arrows along the curve
+# and first / best / last parameter-value labels on the sweep circles.
+
+SWEEP_ARROW_SIZE = 50
+
+# Open right-pointing chevron (">") used for the sweep-direction arrows. The
+# apex sits at (1, 0) and the two arms reach back to (-1, +/-CHEVRON_HALF_WIDTH).
+# Tip-to-tail LENGTH is the x-extent (fixed at +/-1, scaled by `s`); WIDTH is
+# 2*CHEVRON_HALF_WIDTH -- LARGER = wider, SMALLER = narrower/pointier.
+CHEVRON_HALF_WIDTH = 0.7
+
+
+@lru_cache(maxsize=1)
+def _chevron_path():
+    from matplotlib.path import Path as MplPath
+
+    return MplPath(
+        [[-1.0, CHEVRON_HALF_WIDTH], [1.0, 0.0], [-1.0, -CHEVRON_HALF_WIDTH]]
+    )
+
+
+def _segment_arrows(
+    ax, x, y, colour, *, label=None, label_segment=None, text_xy=(0, 8),
+    mutation_scale=12, n_arrows=None, outline=False,
+):
+    """Overlay direction arrowheads along a sweep.
+
+    By default an arrowhead is drawn on every sweep point (pointing to the next
+    point). If ``n_arrows`` is given, only that many arrowheads are placed --
+    spaced evenly along the valid segments and sitting at each segment's
+    midpoint -- so the per-point circle markers from the underlying ``o-`` line
+    stay visible. ``outline=True`` renders the arrowheads unfilled (coloured
+    outline only) instead of solid blocks.
+    """
+    from matplotlib.markers import MarkerStyle
+    from matplotlib.transforms import Affine2D
+
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    valid_segments = []
+    ax.figure.canvas.draw()
+    for i in range(len(x) - 1):
+        if not np.all(np.isfinite([x[i], x[i + 1], y[i], y[i + 1]])):
+            continue
+        valid_segments.append(i)
+
+    if n_arrows is None:
+        draw_segments = valid_segments
+        at_midpoint = False
+    elif not valid_segments or n_arrows >= len(valid_segments):
+        draw_segments = valid_segments
+        at_midpoint = True
+    else:
+        picks = np.linspace(0, len(valid_segments) - 1, n_arrows + 2)[1:-1]
+        draw_segments = [valid_segments[int(round(j))] for j in picks]
+        at_midpoint = True
+
+    for i in draw_segments:
+        p0 = ax.transData.transform((x[i], y[i]))
+        p1 = ax.transData.transform((x[i + 1], y[i + 1]))
+        delta = p1 - p0
+        if np.allclose(delta, 0):
+            continue
+        angle = float(np.degrees(np.arctan2(delta[1], delta[0])))
+        # Outline arrows use a custom open chevron path (two strokes meeting at
+        # a point, like an inequality ">", no closing base line) whose apex
+        # angle is tunable via CHEVRON_HALF_WIDTH. The filled ">" triangle is
+        # kept for the solid per-point arrows.
+        glyph = _chevron_path() if outline else ">"
+        marker = MarkerStyle(glyph, transform=Affine2D().rotate_deg(angle))
+        px = 0.5 * (x[i] + x[i + 1]) if at_midpoint else x[i]
+        py = 0.5 * (y[i] + y[i + 1]) if at_midpoint else y[i]
+        if outline:
+            # facecolors="none" leaves the open path unfilled, so only the two
+            # arms of the chevron are stroked (in `edgecolors`).
+            ax.scatter(
+                [px], [py], marker=marker, s=SWEEP_ARROW_SIZE * 1.5,
+                facecolors="none", edgecolors=colour, linewidths=1.0,
+                zorder=10, clip_on=True,
+            )
+        else:
+            ax.scatter(
+                [px], [py], marker=marker, s=SWEEP_ARROW_SIZE,
+                color=colour, edgecolors="white", linewidths=0.35, zorder=10,
+                clip_on=True,
+            )
+
+    if label and valid_segments:
+        i = label_segment if label_segment is not None else valid_segments[len(valid_segments) // 2]
+        if i not in valid_segments:
+            i = valid_segments[len(valid_segments) // 2]
+        mid_x = float(np.sqrt(x[i] * x[i + 1])) if x[i] > 0 and x[i + 1] > 0 else float(0.5 * (x[i] + x[i + 1]))
+        mid_y = float(0.5 * (y[i] + y[i + 1]))
+        ax.annotate(
+            label, (mid_x, mid_y), fontsize=7, color=colour,
+            xytext=text_xy, textcoords="offset points", ha="center",
+            bbox=dict(facecolor="white", edgecolor="none", alpha=0.78, pad=0.8),
+        )
+
+
+def _knee_index(r_tilde, nll):
+    """Index of the Pareto 'best' point: the sweep entry closest to the ideal
+    lower-left corner (low roughness AND low NLL) in min-max-normalised
+    (R~, NLL/N) space. Computed from the faithfulness-coherence objective so
+    the same parameter value is flagged on whichever panel it is drawn."""
+    r = np.asarray(r_tilde, dtype=float)
+    n = np.asarray(nll, dtype=float)
+
+    def _unit(a):
+        span = float(a.max() - a.min())
+        return (a - a.min()) / span if span > 0 else np.zeros_like(a)
+
+    return int(np.argmin(_unit(r) ** 2 + _unit(n) ** 2))
+
+
+def _sweep_param_labels(ax, x, y, params, best_idx, symbol, colour, placements):
+    """Annotate the first, 'best' and last sweep circles with their parameter
+    value. The best point is bolded. `placements` maps 'first'/'best'/'last' ->
+    dict(xytext=(dx, dy), ha=..., va=...) of point-offset text placements,
+    hand-tuned to dodge the curves, arrows and anchors."""
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    roles = {"first": 0, "best": int(best_idx), "last": len(x) - 1}
+    for role, i in roles.items():
+        txt = f"${symbol}={params[i]:g}$"
+        p = placements[role]
+        ax.annotate(
+            txt, (x[i], y[i]), fontsize=7, color=colour,
+            fontweight="bold" if role == "best" else "normal",
+            xytext=p["xytext"], textcoords="offset points",
+            ha=p.get("ha", "center"), va=p.get("va", "center"),
+            bbox=dict(facecolor="white", edgecolor="none", alpha=0.8, pad=0.8),
+            zorder=11,
+        )

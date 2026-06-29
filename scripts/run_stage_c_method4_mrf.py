@@ -49,25 +49,16 @@ RUN_DIR = REPO_ROOT / "outputs" / "runs" / "stage_c_method4_mrf"
 # Stage A / Stage B); the heteroscedastic toy lives in notebook 00.
 DATASETS = ("phase_1_homoscedastic",)
 
-# beta grid: 0 (unary-best mode field, the smoothness-free anchor) then a denser
-# log-spaced sweep than Method 1's. The transition from the jagged unary-best
-# field to the saturated smoothest mode assignment happens at small beta and the
-# field is piecewise-constant beyond it, so the grid is dense through the knee
-# (~0.01-0.2) and then samples the saturated tail to show repeated fields.
+# beta grid: 0 (unary-best mode field, the smoothness-free anchor), then one
+# representative point for each visible plateau in the report figures. Earlier
+# dense grids confirmed the field is piecewise-constant in beta; this compact
+# grid keeps the plotted Method-4 curve legible without changing the conclusion.
 DEFAULT_BETAS = (
     0.0,
-    0.01,
-    0.02,
-    0.03,
+    0.025,
     0.05,
     0.075,
     0.1,
-    0.15,
-    0.2,
-    0.3,
-    0.5,
-    1.0,
-    2.0,
 )
 
 

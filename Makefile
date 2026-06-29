@@ -13,7 +13,7 @@
 
 PY := .venv/bin/python
 
-.PHONY: ch5 forecast-leads softening faithfulness figures emit test report report-watch
+.PHONY: ch5 forecast-leads softening faithfulness figures toy-figures emit test report report-watch
 
 ## Full per-lead Phase 4 audit for both checkpoints + the converged replicate
 ## inits. Needs ~/model_outputs/*.pt and the WeatherGenerator venv (torch).
@@ -27,6 +27,11 @@ softening:
 
 faithfulness:
 	$(PY) scripts/run_forecast_faithfulness.py
+
+## The two Phase 1/2 toy report figures, from the persisted stage_* artifacts
+## (no sweep re-run; replaces the old notebook 02/03 exports).
+toy-figures:
+	$(PY) scripts/make_toy_figures.py
 
 emit:
 	$(PY) scripts/emit_report_results.py
