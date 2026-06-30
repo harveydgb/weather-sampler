@@ -99,11 +99,18 @@ def test_tables_render_rows_and_dagger():
     lam_tbl = m.build_lambda_table(LAM, SOFT)
     assert "120.5" in lam_tbl
     assert r"$^{\dagger}$" in lam_tbl  # 14ep@8 is unbracketed in the fixture
-    # C1: across-init range footnote is macro-driven (not a hand-typed number).
-    assert r"\forecastLambdaStarConvergedLo" in lam_tbl
-    assert r"\forecastLambdaStarConvergedHi" in lam_tbl
+    # 29 Jun: the bracketed-audit + across-init range moved OUT of a note under the
+    # table INTO the caption (thesis.tex); the table is now a caption-only float.
+    assert "footnotesize" not in lam_tbl
+    assert r"\forecastLambdaStarConvergedLo" not in lam_tbl
     faith_tbl = m.build_faithfulness_table(FAITH, SOFT)
-    assert "-0.004" in faith_tbl and "+0.002" in faith_tbl
+    # 29 Jun table review: the all-zero do-no-harm ΔCRPS column is dropped to the
+    # caption null; the table now carries only the two Joint MAP marginal-position
+    # diagnostics, and the misread-prone "M1 cov." header is renamed "marg.-pos.".
+    assert r"marg.-pos." in faith_tbl and "M1" not in faith_tbl
+    assert "0.910" in faith_tbl and "0.880" in faith_tbl   # cov90 (6ep, 14ep)
+    assert "0.050" in faith_tbl and "0.070" in faith_tbl   # PIT KS (6ep, 14ep)
+    assert "-0.004" not in faith_tbl and "+0.002" not in faith_tbl  # no ΔCRPS column
 
 
 def test_placeholder_never_gets_dagger():
@@ -464,6 +471,42 @@ def test_build_toy_baseline_table_renders_rows_and_placeholders():
     # a missing anchor -> em-dash (placeholder) cells, table still complete
     tbl2 = m.build_toy_baseline_table([r for r in TOY if r["baseline"] != "iid"])
     assert f"Independent draw (iid) & {m.PLACEHOLDER} & {m.PLACEHOLDER}" in tbl2
+
+
+# ---------------------------------------- Section 4.2 operating-point smear (B5)
+_TOY_RUNS = REPO_ROOT / "outputs" / "runs"
+_TOY_DATA = REPO_ROOT / "outputs" / "data"
+needs_toy_arrays = pytest.mark.skipif(
+    not (_TOY_DATA / "phase_1_homoscedastic.npz").exists(),
+    reason="toy field artifacts absent (regenerated, not git-tracked)",
+)
+
+
+@needs_toy_arrays
+def test_build_toy_smear_macros_pins_figure_operating_points():
+    # Drift guard: recompute the off-mode smear fraction at each method's figure
+    # operating point and pin it to the value the non-smearing figure shows. If a
+    # toy artifact is ever regenerated to different numbers, this fails loudly
+    # rather than letting the Section 4.2 prose silently diverge from its figure.
+    m = _load()
+    macros = m.build_toy_smear_macros(_TOY_RUNS, _TOY_DATA)
+    assert set(macros) == set(m.TOY_SMEAR_MACROS)
+    # Joint MAP (quadratic) at its R~~0.25 point smears ~14%; exact TV and Mode-MRF
+    # hold their non-smearing knees at ~6%.
+    assert macros["toyQuadSmearFrac"] == r"14.1\%"
+    assert macros["toyQuadSmearRtilde"] == "0.252"
+    assert macros["toyTvExactSmearFrac"] == r"6.2\%"
+    assert macros["toyTvExactSmearRtilde"] == "0.575"
+    assert macros["toyMrfSmearFrac"] == r"6.2\%"
+    assert macros["toyMrfSmearRtilde"] == "0.604"
+
+
+def test_build_toy_smear_macros_placeholders_when_absent(tmp_path):
+    # Absent artifacts -> all placeholders, never invented (I2).
+    m = _load()
+    macros = m.build_toy_smear_macros(tmp_path / "runs", tmp_path / "data")
+    assert set(macros) == set(m.TOY_SMEAR_MACROS)
+    assert all(v == m.PLACEHOLDER for v in macros.values())
 
 
 # ----------------------------------------------------- F2 golden round-trip

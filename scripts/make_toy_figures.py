@@ -5,11 +5,13 @@ old notebook exports so the report no longer depends on notebook execution
 (notebooks 02/03 are now exploratory only):
 
   phase_2_stage_bc_nonsmearing_homoscedastic.png
-      Non-smearing: Joint MAP (Method 1, lambda sweep) vs Mode-selection MRF
-      (Method 4, beta sweep) vs the per-cell-MAP / smoothed-MAP / a* reference
-      fields. Left: mean dNLL to the best emitted mode. Right: the >0.5 sigma
-      (= dNLL > 0.125 nats) smear tail with within-field spatial-bootstrap CIs.
-      Both vs scale-free roughness R~.
+      Non-smearing smear tail: Joint MAP (Method 1, lambda sweep) vs
+      Mode-selection MRF (Method 4, beta sweep) vs the per-cell-MAP /
+      smoothed-MAP / a* reference fields -- the >0.5 sigma (= dNLL > 0.125 nats)
+      smear tail with within-field spatial-bootstrap CIs, vs scale-free
+      roughness R~. (A former left panel showing mean dNLL to best mode was
+      dropped: mean dNLL = NLL/N minus a fixed per-cell constant, i.e. the
+      pareto figure's y-axis, so it duplicated phase_2_tv_pareto_plane.)
   phase_2_tv_pareto_plane_homoscedastic.png
       Faithfulness-coherence plane (NLL/N vs R~) for Joint MAP,
       Mode-selection MRF and the exact min-cut TV frontier, bracketed by the
@@ -180,36 +182,14 @@ def _anchor(ax, art, key, y, *, ci=None, annotate_xy=(5, 4), annotate_ha="left")
 
 
 def fig_nonsmearing(art, fig_dir=FIG_DIR):
-    """Non-smearing panel pair -> phase_2_stage_bc_nonsmearing_homoscedastic.png."""
+    """Smear-tail panel -> phase_2_stage_bc_nonsmearing_homoscedastic.png."""
     B, C = art["B"], art["C"]
     b_delta = [smear(f, art) for f in B["fields"]]
     c_delta = [smear(f, art) for f in C["fields"]]
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.5, 4.6))
+    fig, ax2 = plt.subplots(figsize=(8, 5.5))
 
-    # Left: mean drift off the density peaks vs roughness.
-    ax1.plot(B["r_tilde"], [d["mean"] for d in b_delta], "o-", color=M1_COLOUR,
-             lw=2, ms=SWEEP_MARKER_SIZE, label="Joint MAP ($\\lambda:0\\to2$)")
-    ax1.plot(C["r_tilde"], [d["mean"] for d in c_delta], "o-", color=M4_COLOUR,
-             lw=2, ms=SWEEP_MARKER_SIZE, label="Mode-selection MRF ($\\beta:0\\to0.1$)")
-    anchor_labels_left = {
-        "iid": dict(annotate_xy=(-8, -8), annotate_ha="right"),
-        "mixture_mean": dict(annotate_xy=(8, -4)),
-        "mode_map": dict(annotate_xy=(-8, 4), annotate_ha="right"),
-        "a_star": dict(annotate_xy=(6, 4)),
-        "smoothed_map": dict(annotate_xy=(6, 4)),
-    }
-    for key in ("iid", "mixture_mean", "mode_map", "a_star", "smoothed_map"):
-        _anchor(ax1, art, key, smear(art["A"][key], art)["mean"],
-                **anchor_labels_left[key])
-    ax1.set_xscale("linear")
-    ax1.set_xlabel("$\\tilde{R} = S_{\\mathrm{edge}}/\\mathrm{Var}(V)$")
-    ax1.set_ylabel("mean $\\Delta$NLL to best mode (nats)")
-    ax1.set_title("Average drift off the density peaks")
-    ax1.grid(True, alpha=0.3)
-    ax1.legend(fontsize=7)
-
-    # Right: the >0.5 sigma smear tail (frac dNLL > 0.125 nats) with within-field
+    # The >0.5 sigma smear tail (frac dNLL > 0.125 nats) with within-field
     # spatial-bootstrap CIs -- the panel the bare (NLL/N, R~) plane cannot show.
     def tail(ax, r_tilde, deltas, fmt, colour, label):
         fracs = [d["frac_over"][0] for d in deltas]
@@ -240,13 +220,7 @@ def fig_nonsmearing(art, fig_dir=FIG_DIR):
     ax2.grid(True, alpha=0.3)
     ax2.legend(fontsize=7, loc="upper center")
 
-    fig.suptitle("Non-smearing on the synthetic testbed: at matched-or-lower "
-                 "roughness Mode-selection MRF keeps more cells on their modes", y=1.02)
     fig.tight_layout()
-    _segment_arrows(ax1, B["r_tilde"], [d["mean"] for d in b_delta], M1_COLOUR,
-                    n_arrows=2, outline=True)
-    _segment_arrows(ax1, C["r_tilde"], [d["mean"] for d in c_delta], M4_COLOUR,
-                    n_arrows=2, outline=True)
     _segment_arrows(ax2, B["r_tilde"], [d["frac_over"][0] for d in b_delta],
                     M1_COLOUR, n_arrows=2, outline=True)
     _segment_arrows(ax2, C["r_tilde"], [d["frac_over"][0] for d in c_delta],
@@ -257,22 +231,6 @@ def fig_nonsmearing(art, fig_dir=FIG_DIR):
     # objective so both panels flag the same lambda*/beta*.
     b_best = _knee_index(B["r_tilde"], B["nll_over_n"])  # lambda* = 0.2
     c_best = _knee_index(C["r_tilde"], C["nll_over_n"])  # beta*  = 0.05
-    _sweep_param_labels(
-        ax1, B["r_tilde"], [d["mean"] for d in b_delta], B["lambdas"], b_best,
-        "\\lambda", M1_COLOUR, placements={
-            "first": dict(xytext=(4, 11), ha="center", va="top"),
-            "best": dict(xytext=(12, -8), ha="right", va="center"),
-            "last": dict(xytext=(4, 4), ha="right", va="bottom"),
-        },
-    )
-    _sweep_param_labels(
-        ax1, C["r_tilde"], [d["mean"] for d in c_delta], C["betas"], c_best,
-        "\\beta", M4_COLOUR, placements={
-            "first": dict(xytext=(8, -2), ha="left", va="center"),
-            "best": dict(xytext=(-24, -8), ha="right", va="bottom"),
-            "last": dict(xytext=(-15, 4), ha="left", va="bottom"),
-        },
-    )
     _sweep_param_labels(
         ax2, B["r_tilde"], [d["frac_over"][0] for d in b_delta], B["lambdas"],
         b_best, "\\lambda", M1_COLOUR, placements={

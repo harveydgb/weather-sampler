@@ -26,6 +26,8 @@ from pathlib import Path
 import numpy as np
 
 from sampler_research import faithfulness as fth
+from sampler_research import method4_mrf as rm4
+from sampler_research.io import load_sampler_arrays
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOFT_CSV = REPO_ROOT / "outputs" / "runs" / "phase_4_forecast_softening" / "softening_by_lead.csv"
@@ -55,6 +57,23 @@ TOY_BASELINES = [
 # Documented, ultra-review-verified AE lambda* fallback (log.md 2026-06-11) when
 # the local AE run dir is absent; physical value, not a guess.
 AE_LAMBDA_STAR_FALLBACK = 93.74
+
+# Chapter-4 Section 4.2 operating-point off-mode smear macros (B5, 30 Jun). The
+# off-mode fraction (cells with dNLL/cell > 0.125 nats, i.e. drifted > 0.5 sigma
+# off the nearest emitted mode) at each method's figure operating point, recomputed
+# from the committed toy fields the SAME way make_toy_figures.py does (against the
+# shared Stage-C extracted modes), so the quoted number and the non-smearing figure
+# can never diverge. The headline ~14% Joint MAP point is NOT in any CSV (the figure
+# computes it inline), which is why it is recomputed here rather than read. Operating
+# points are the ones the figures/notes quote:
+#   Joint MAP  lambda=0.2  -> R~ ~ 0.25 (the quadratic's R~~0.25 point: the smallest
+#              lambda reaching that roughness, and the lowest-smear of the cluster)
+#   exact TV   lambda=0.1  -> R~ ~ 0.58 non-smearing knee (before plateau-collapse)
+#   Mode-MRF   beta=0.075  -> R~ ~ 0.60 non-smearing knee
+TOY_DATA_DIR = REPO_ROOT / "outputs" / "data"
+TOY_QUAD_SMEAR_LAMBDA = 0.2
+TOY_TV_KNEE_LAMBDA = 0.1
+TOY_MRF_KNEE_BETA = 0.075
 
 
 # --------------------------------------------------------------- formatters
@@ -180,14 +199,16 @@ def build_pi_softening_table(soft_rows):
     # prose, not by silently swapping the table to the 3-init mean).
     soft = {(r["run"], int(r["step"])): r for r in soft_rows
             if r.get("kind", "single") == "single"}
-    steps = _steps_union(soft_rows)
+    # Trimmed to the two cited headline leads (+6h, +48h); the figure carries the
+    # full lead curve, and the prose quotes only these endpoints via macros.
+    steps = [s for s in _steps_union(soft_rows) if s in (HOUR_STEP["SixHour"], HOUR_STEP["FortyEight"])]
     head = [
         r"\begin{tabular}{lcccccc}",
         r"\toprule",
         r" & \multicolumn{2}{c}{median max-$\pi$} & \multicolumn{2}{c}{one-hot frac.} "
         r"& \multicolumn{2}{c}{2nd-mode mass} \\",
         r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}",
-        r"Lead & 6\,ep & conv. & 6\,ep & conv. & 6\,ep & conv. \\",
+        r"Lead & 6\,ep & 14\,ep & 6\,ep & 14\,ep & 6\,ep & 14\,ep \\",
         r"\midrule",
     ]
     body = []
@@ -210,12 +231,16 @@ def build_lambda_table(lambda_stars, soft_rows):
     steps = _steps_union(lambda_stars)
     if not steps:
         steps = _steps_union(soft_rows)
+    # matched R-tilde was a constant column (held fixed by construction). Dropped:
+    # the roughness-matching target, the bracketed-flag audit and the across-init
+    # range now live in the table CAPTION (thesis.tex), not in a separate note block
+    # under the table -- a table carries a caption only, no third text section.
     head = [
-        r"\begin{tabular}{lcccc}",
+        r"\begin{tabular}{lcc}",
         r"\toprule",
-        r" & \multicolumn{2}{c}{$\lambda^\star$} & \multicolumn{2}{c}{matched $\widetilde{R}$} \\",
-        r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}",
-        r"Lead & 6\,ep & conv. & 6\,ep & conv. \\",
+        r" & \multicolumn{2}{c}{$\lambda^\star$} \\",
+        r"\cmidrule(lr){2-3}",
+        r"Lead & 6\,ep & 14\,ep \\",
         r"\midrule",
     ]
     body = []
@@ -230,23 +255,14 @@ def build_lambda_table(lambda_stars, soft_rows):
                 return s
             return s + r"$^{\dagger}$"
 
-        def cell_rt(rec):
-            return fmt_pi(rec["matched_r_tilde"]) if rec else PLACEHOLDER
-
-        cells = [cell_lam(l6), cell_lam(l14), cell_rt(l6), cell_rt(l14)]
+        cells = [cell_lam(l6), cell_lam(l14)]
         body.append(f"{_lead_label(step, soft_rows)} & " + " & ".join(cells) + r" \\")
     tail = [
         r"\bottomrule",
         r"\end{tabular}",
-        r"% $\dagger$: unbracketed (nearest-row $\lambda^\star$, sweep extended).",
-        r"\par\smallskip",
-        # C1: across-init range footnote, macro-driven (no hand-typed number) and
-        # placeholder-safe -- em-dashes here if the init_mean aggregate is absent.
-        r"{\footnotesize Converged \mbox{+48\,h}~$\lambda^\star$ spans "
-        r"$[\forecastLambdaStarConvergedLo,\forecastLambdaStarConvergedHi]$ "
-        r"(mean~\forecastLambdaStarConvergedMean) across the "
-        r"\faithfulnessNInits\ first-of-month 2023 initialisations; the tabulated "
-        r"conv.\ value is the canonical case.}",
+        r"% $\dagger$: unbracketed (nearest-row $\lambda^\star$, sweep extended);"
+        r" the matching target, bracketed-flag audit and across-init range live in"
+        r" the table caption (thesis.tex), not in a note under the table.",
     ]
     return "\n".join(head + body + tail) + "\n"
 
@@ -256,21 +272,22 @@ def build_faithfulness_table(faith_rows, soft_rows):
     faith = {(r["run"], int(r["step"])): r for r in faith_rows
              if r.get("kind", "single") == "single"}
     steps = _steps_union(faith_rows) or _steps_union(soft_rows)
+    # The all-zero do-no-harm Delta-CRPS column is dropped to one sentence in S5.6
+    # (the |Delta CRPS| <= \deltaCrpsMaxAbs null); only the two marginal-position
+    # diagnostics (Joint MAP) remain. Headers carry the "marg.-pos." qualifier so the
+    # table cannot be misread as ensemble calibration (non-claim #3).
     head = [
-        r"\begin{tabular}{lcccccc}",
+        r"\begin{tabular}{lcccc}",
         r"\toprule",
-        r" & \multicolumn{2}{c}{$\Delta$CRPS (iid)} & \multicolumn{2}{c}{M1 cov.\ 90\%} "
-        r"& \multicolumn{2}{c}{M1 PIT KS} \\",
-        r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}",
-        r"Lead & 6\,ep & conv. & 6\,ep & conv. & 6\,ep & conv. \\",
+        r" & \multicolumn{2}{c}{marg.-pos.\ 90\%} & \multicolumn{2}{c}{PIT KS} \\",
+        r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}",
+        r"Lead & 6\,ep & 14\,ep & 6\,ep & 14\,ep \\",
         r"\midrule",
     ]
     body = []
     for step in steps:
         f6, f14 = faith.get(("6ep", step)), faith.get(("14ep", step))
         cells = [
-            fmt_delta(f6["iid_delta_crps"]) if f6 else PLACEHOLDER,
-            fmt_delta(f14["iid_delta_crps"]) if f14 else PLACEHOLDER,
             fmt_cov(f6["m1_star_cov90"]) if f6 else PLACEHOLDER,
             fmt_cov(f14["m1_star_cov90"]) if f14 else PLACEHOLDER,
             fmt_cov(f6["m1_star_pit_ks"]) if f6 else PLACEHOLDER,
@@ -280,8 +297,8 @@ def build_faithfulness_table(faith_rows, soft_rows):
     tail = [
         r"\bottomrule",
         r"\end{tabular}",
-        r"% $\Delta$CRPS is the stochastic iid do-no-harm baseline only; M1 PIT/coverage "
-        r"are marginal-position diagnostics (report non-claim \#3).",
+        r"% Joint MAP marginal-position diagnostics only (report non-claim \#3); the "
+        r"do-no-harm $\Delta$CRPS null is reported in the \S5.6 text.",
     ]
     return "\n".join(head + body + tail) + "\n"
 
@@ -305,6 +322,64 @@ def build_toy_baseline_macros(toy_rows):
         macros[f"toy{infix}Nll"] = fmt_pi(row["nll_over_n"]) if row else PLACEHOLDER
         macros[f"toy{infix}Rtilde"] = fmt_pi(row["r_tilde"]) if row else PLACEHOLDER
     return macros
+
+
+# Section 4.2 operating-point smear macros (B5). The off-mode fraction the figure
+# computes inline is not persisted in a CSV, so it is recomputed here against the
+# shared Stage-C modes -- identical to make_toy_figures.smear() -- guaranteeing the
+# quoted number matches the non-smearing figure.
+TOY_SMEAR_MACROS = (
+    "toyQuadSmearFrac", "toyQuadSmearRtilde",
+    "toyTvExactSmearFrac", "toyTvExactSmearRtilde",
+    "toyMrfSmearFrac", "toyMrfSmearRtilde",
+)
+
+
+def _toy_frac_over(field, gmm, modes, valid_mask):
+    """frac of cells drifted > 0.5 sigma (dNLL/cell > 0.125 nats) off the nearest
+    emitted mode: the figure's `smear(...)["frac_over"][0]`, recomputed verbatim."""
+    res = rm4.delta_nll_to_best_mode(
+        field, gmm["pi"], gmm["mu"], gmm["sigma"], modes, valid_mask)
+    return float(np.ravel(res["frac_over"])[0])
+
+
+def _pick_sweep_index(values, target, atol=1e-6):
+    """Index of the single sweep entry equal to `target` (operating-point select);
+    None if absent, so a renamed/rescanned sweep degrades to a placeholder."""
+    idx = np.flatnonzero(np.isclose(np.asarray(values, dtype=float), target, atol=atol))
+    return int(idx[0]) if idx.size else None
+
+
+def build_toy_smear_macros(runs_dir, data_dir, dataset="phase_1_homoscedastic"):
+    """Recompute the Section 4.2 off-mode smear fraction (and matched R-tilde) at
+    each method's figure operating point from the committed toy fields. Any absent
+    artifact or missing operating point -> em-dash placeholders (I2)."""
+
+    blank = {k: PLACEHOLDER for k in TOY_SMEAR_MACROS}
+    runs_dir, data_dir = Path(runs_dir), Path(data_dir)
+    try:
+        d = load_sampler_arrays(data_dir / f"{dataset}.npz")
+        B = dict(np.load(runs_dir / "stage_b_regularised_map" / f"{dataset}_regularised_map.npz"))
+        C = dict(np.load(runs_dir / "stage_c_method4_mrf" / f"{dataset}_method4_mrf.npz"))
+        T = dict(np.load(runs_dir / "stage_b_tv_ablation" / f"{dataset}_tv_ablation.npz"))
+    except (FileNotFoundError, OSError):
+        return blank
+
+    gmm = {"pi": d["pi"], "mu": d["mu"], "sigma": d["sigma"]}
+    modes, valid = C["mode_values"], C["valid_mask"]
+    iq = _pick_sweep_index(B["lambdas"], TOY_QUAD_SMEAR_LAMBDA)
+    it = _pick_sweep_index(T["cut_tv_lambdas"], TOY_TV_KNEE_LAMBDA)
+    im = _pick_sweep_index(C["betas"], TOY_MRF_KNEE_BETA)
+    if None in (iq, it, im):
+        return blank
+    return {
+        "toyQuadSmearFrac": fmt_pct(_toy_frac_over(B["fields"][iq], gmm, modes, valid)),
+        "toyQuadSmearRtilde": fmt_pi(float(B["r_tilde"][iq])),
+        "toyTvExactSmearFrac": fmt_pct(_toy_frac_over(T["cut_tv_fields"][it], gmm, modes, valid)),
+        "toyTvExactSmearRtilde": fmt_pi(float(T["cut_tv_r_tilde"][it])),
+        "toyMrfSmearFrac": fmt_pct(_toy_frac_over(C["fields"][im], gmm, modes, valid)),
+        "toyMrfSmearRtilde": fmt_pi(float(C["r_tilde"][im])),
+    }
 
 
 def build_toy_baseline_table(toy_rows):
@@ -855,6 +930,10 @@ def main():
         args.runs_dir / "phase_4_fc48_14ep_step8")}
     # I2: Chapter-4 synthetic-testbed bracket macros (Stage-A baselines).
     macros = {**macros, **build_toy_baseline_macros(toy_rows)}
+    # B5: Chapter-4 Section 4.2 operating-point off-mode smear fractions, recomputed
+    # from the committed toy fields (figure-faithful) so the quoted number cannot
+    # drift from its non-smearing figure.
+    macros = {**macros, **build_toy_smear_macros(args.runs_dir, TOY_DATA_DIR)}
     tables = {
         "pi_softening.tex": build_pi_softening_table(soft_rows),
         "lambda_calibration.tex": build_lambda_table(lambda_stars, soft_rows),
