@@ -769,6 +769,51 @@ def build_crps_extremum_macros(faith_rows):
     return {"deltaCrpsMaxAbs": fmt_sci(max(vals)) if vals else PLACEHOLDER}
 
 
+# ----------------------------------------- ERA5 spectrum bracket (S5.5) scalars
+# The two numbers the Section 5.5 spectrum prose quotes are read from the native
+# spherical C_ell spectra persisted for the canonical +48h step-8 run, never read
+# off the figure (D-steer, 30 Jun: a real number the report is stronger for is
+# emitted as a tested macro, not hand-typed). Band-power-normalised C_ell per
+# field + the ERA5 reference live in spectra.npz; both scalars reproduce the
+# 29-Jun log values exactly (0.054 decades; ~199x).
+SPECTRUM_LARGE_ELL = 10   # "large scales": low-ell band the C1 cut-check averages over
+SPECTRUM_FINE_ELL = 96    # "fine scales": high-ell band (>= O96 ring-Nyquist) for the ratio
+SPECTRUM_FIELDS = ("iid_seed0", "mode_map", "mixture_mean",
+                   "smoothed_map_n10", "m1_star", "m4_beta1")
+
+
+def build_spectrum_macros(runs_dir):
+    """Native spherical C_ell spectra (canonical +48h step-8) -> two ERA5-bracket
+    scalars the Section 5.5 prose quotes via macros:
+
+      \\spectrumDecadeAgreementMax : worst-case large-scale agreement with ERA5 --
+        max over fields of the median |log10 C_ell - log10 C_ell^ERA5| over
+        ell <= SPECTRUM_LARGE_ELL (~0.054 decades; every field is at or below it,
+        so the report can say "every field agrees to within X of a decade").
+      \\spectrumEraRatioMethod : the factor by which the imposed coherence prior
+        sits below ERA5 at fine scales -- ratio of the ERA5 fine-scale
+        (ell >= SPECTRUM_FINE_ELL) band-power median to JointMAP's (~199x).
+
+    Reads only the persisted artifact; absent -> placeholders so the document
+    still compiles on a fresh clone (the committed macros carry the real values).
+    """
+
+    path = Path(runs_dir) / "phase_4_fc48_14ep_step8" / "spectra.npz"
+    if not path.exists():
+        return {"spectrumDecadeAgreementMax": PLACEHOLDER,
+                "spectrumEraRatioMethod": PLACEHOLDER}
+    d = np.load(path, allow_pickle=True)
+    ell, era5 = d["ell"], d["era5"]
+    large, fine = ell <= SPECTRUM_LARGE_ELL, ell >= SPECTRUM_FINE_ELL
+    decade = max(
+        float(np.median(np.abs(np.log10(d[f][large]) - np.log10(era5[large]))))
+        for f in SPECTRUM_FIELDS if f in d
+    )
+    ratio = float(np.median(era5[fine]) / np.median(d["m1_star"][fine]))
+    return {"spectrumDecadeAgreementMax": format(decade, ".3f"),
+            "spectrumEraRatioMethod": str(int(round(ratio)))}
+
+
 # ------------------------------------------ across-init M1 vs smoothed-MAP gap
 # Probe-#2 error bar: the headline "M1 beats smoothed-MAP at matched R-tilde"
 # resampled over forecast INITS (not cells, like the bootstrap above). Init
@@ -928,6 +973,9 @@ def main():
     # step-8 masks the bootstrap reads (forecast regime, not the recon audit).
     macros = {**macros, **build_bimodal_geography_macros(
         args.runs_dir / "phase_4_fc48_14ep_step8")}
+    # S5.5: ERA5 spectrum bracket scalars (large-scale decade agreement +
+    # fine-scale headroom ratio), read from the canonical +48h step-8 spectra.npz.
+    macros = {**macros, **build_spectrum_macros(args.runs_dir)}
     # I2: Chapter-4 synthetic-testbed bracket macros (Stage-A baselines).
     macros = {**macros, **build_toy_baseline_macros(toy_rows)}
     # B5: Chapter-4 Section 4.2 operating-point off-mode smear fractions, recomputed

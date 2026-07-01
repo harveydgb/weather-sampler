@@ -13,6 +13,10 @@ needs_fc_converged = pytest.mark.skipif(
     not (FC_CONVERGED_RUN / "delta_per_cell.npz").exists(),
     reason="converged +48h forecast run artifact absent",
 )
+needs_fc_spectra = pytest.mark.skipif(
+    not (FC_CONVERGED_RUN / "spectra.npz").exists(),
+    reason="converged +48h spectra artifact absent",
+)
 
 
 def _load():
@@ -172,6 +176,27 @@ def test_build_bootstrap_macros_placeholders_when_absent():
     assert macros["fcBimodalFracGapHi"] == m.PLACEHOLDER
     # the descriptive constants are always present
     assert macros["bootstrapNDraws"] == "2000"
+
+
+@needs_fc_spectra
+def test_build_spectrum_macros_pins_era5_bracket():
+    """The two ERA5-bracket scalars the Section 5.5 spectrum prose quotes are read
+    from the canonical +48h step-8 spectra.npz, not hand-typed off the figure. Pins
+    them to the 29-Jun log values: the worst-case large-scale agreement is 0.054
+    decades (JointMAP, every field at or below it) and ERA5 carries ~199x JointMAP's
+    fine-scale band power. A pipeline change that moved either would fail here before
+    the committed macro could silently drift from the prose."""
+    m = _load()
+    macros = m.build_spectrum_macros(FC_CONVERGED_RUN.parent)
+    assert macros["spectrumDecadeAgreementMax"] == "0.054"
+    assert macros["spectrumEraRatioMethod"] == "199"
+
+
+def test_build_spectrum_macros_placeholders_when_absent(tmp_path):
+    m = _load()
+    macros = m.build_spectrum_macros(tmp_path)  # no spectra.npz under here
+    assert macros["spectrumDecadeAgreementMax"] == m.PLACEHOLDER
+    assert macros["spectrumEraRatioMethod"] == m.PLACEHOLDER
 
 
 @needs_fc_converged
