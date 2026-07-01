@@ -435,7 +435,7 @@ def _chevron_path():
 
 def _segment_arrows(
     ax, x, y, colour, *, label=None, label_segment=None, text_xy=(0, 8),
-    mutation_scale=12, n_arrows=None, outline=False,
+    mutation_scale=12, n_arrows=None, outline=False, arrow_size=None,
 ):
     """Overlay direction arrowheads along a sweep.
 
@@ -451,6 +451,10 @@ def _segment_arrows(
 
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
+    # Per-call arrowhead size; defaults to the module SWEEP_ARROW_SIZE so existing
+    # callers (e.g. the Ch5 phase-4 figures) are unchanged, while the toy figures
+    # can request a slightly larger head.
+    base_size = SWEEP_ARROW_SIZE if arrow_size is None else arrow_size
 
     valid_segments = []
     ax.figure.canvas.draw()
@@ -489,13 +493,13 @@ def _segment_arrows(
             # facecolors="none" leaves the open path unfilled, so only the two
             # arms of the chevron are stroked (in `edgecolors`).
             ax.scatter(
-                [px], [py], marker=marker, s=SWEEP_ARROW_SIZE * 1.5,
+                [px], [py], marker=marker, s=base_size * 1.5,
                 facecolors="none", edgecolors=colour, linewidths=1.0,
                 zorder=10, clip_on=True,
             )
         else:
             ax.scatter(
-                [px], [py], marker=marker, s=SWEEP_ARROW_SIZE,
+                [px], [py], marker=marker, s=base_size,
                 color=colour, edgecolors="white", linewidths=0.35, zorder=10,
                 clip_on=True,
             )

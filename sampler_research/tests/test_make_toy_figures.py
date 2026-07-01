@@ -59,7 +59,8 @@ def test_smear_tail_ci_brackets_point():
     95% interval brackets it (seeded, so this is deterministic)."""
     m = _load()
     art = m.load_artifacts()
-    d = m.smear(art["C"]["fields"][6], art)  # beta=0.1: a non-zero tail
+    beta_idx = list(art["C"]["betas"]).index(0.1)
+    d = m.smear(art["C"]["fields"][beta_idx], art)  # beta=0.1: a non-zero tail
     ci = m.smear_tail_ci(d["per_cell"])
     assert ci["point"] == pytest.approx(d["frac_over"][0], abs=1e-12)
     assert ci["lo"] <= ci["point"] <= ci["hi"]

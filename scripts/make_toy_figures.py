@@ -84,7 +84,10 @@ ANCHOR_STYLE_KEY = {
 # the real figures. Full-method sweep markers are circles throughout.
 M1_COLOUR = field_style("m1_star")[0]
 M4_COLOUR = field_style("m4_beta1")[0]
-SWEEP_MARKER_SIZE = 3.8
+SWEEP_MARKER_SIZE = 6.0
+# Toy-figure arrowhead size, passed to _segment_arrows so only these two figures
+# grow; the shared default (SWEEP_ARROW_SIZE=50) still drives the Ch5 phase-4 figures.
+TOY_ARROW_SIZE = 70
 
 # Sweep-direction arrows (_segment_arrows) and first/best/last parameter labels
 # (_sweep_param_labels, _knee_index) now live in sampler_research.plotting so the
@@ -202,14 +205,17 @@ def fig_nonsmearing(art, fig_dir=FIG_DIR):
 
     tail(ax2, B["r_tilde"], b_delta, "o-", M1_COLOUR, "Joint MAP ($\\lambda:0\\to2$)")
     tail(ax2, C["r_tilde"], c_delta, "o-", M4_COLOUR, "Mode-selection MRF ($\\beta:0\\to0.1$)")
+    # The Independent draw (iid) anchor is omitted from this plot: at R~ = 2.077 it sits
+    # far right of the working region and stretches the axis, hiding the methods. Its
+    # scores stay in Table 4.1 (tab:toy-baselines); the omission is noted in the report
+    # prose (sec:toy-behaviour) and this figure's caption.
     anchor_labels_right = {
-        "iid": dict(annotate_xy=(-8, -8), annotate_ha="right"),
         "mixture_mean": dict(annotate_xy=(6, 4)),
         "mode_map": dict(annotate_xy=(-8, 4), annotate_ha="right"),
         "a_star": dict(annotate_xy=(6, 4)),
         "smoothed_map": dict(annotate_xy=(6, 4)),
     }
-    for key in ("iid", "mixture_mean", "mode_map", "a_star", "smoothed_map"):
+    for key in ("mixture_mean", "mode_map", "a_star", "smoothed_map"):
         d = smear(art["A"][key], art)
         _anchor(ax2, art, key, d["frac_over"][0], ci=smear_tail_ci(d["per_cell"]),
                 **anchor_labels_right[key])
@@ -222,9 +228,9 @@ def fig_nonsmearing(art, fig_dir=FIG_DIR):
 
     fig.tight_layout()
     _segment_arrows(ax2, B["r_tilde"], [d["frac_over"][0] for d in b_delta],
-                    M1_COLOUR, n_arrows=2, outline=True)
+                    M1_COLOUR, n_arrows=2, outline=True, arrow_size=TOY_ARROW_SIZE)
     _segment_arrows(ax2, C["r_tilde"], [d["frac_over"][0] for d in c_delta],
-                    M4_COLOUR, n_arrows=2, outline=True)
+                    M4_COLOUR, n_arrows=2, outline=True, arrow_size=TOY_ARROW_SIZE)
 
     # Parameter-value labels on the first / best (knee) / last sweep circles.
     # The best index is found once from each method's faithfulness-coherence
@@ -289,15 +295,15 @@ def fig_pareto_plane(art, fig_dir=FIG_DIR):
             ms=SWEEP_MARKER_SIZE,
             label=display_name("tv_cut") + " ($\\lambda:0\\to1$ shown)")
 
-    # Bracket anchors (iid over-noisy floor, mixture-mean over-smooth; matches the
-    # report caption and the real figure's bracket).
+    # Bracket anchors (mixture-mean over-smooth, smoothed-MAP low-roughness, a*). The
+    # Independent draw (iid) is omitted here too: at R~ = 2.077 it lies far off-scale
+    # (see fig_nonsmearing and Table 4.1); the report prose and caption note the omission.
     anchor_labels = {
-        "iid": dict(annotate_xy=(-8, 4), annotate_ha="right"),
         "mixture_mean": dict(annotate_xy=(6, 4)),
         "smoothed_map": dict(annotate_xy=(6, 4)),
         "a_star": dict(annotate_xy=(0, 14), annotate_ha="center"),
     }
-    for key in ("iid", "mixture_mean", "smoothed_map", "a_star"):
+    for key in ("mixture_mean", "smoothed_map", "a_star"):
         _anchor(
             ax, art, key, float(art["scores_a"][key]["nll_over_n"]),
             **anchor_labels[key],
@@ -316,10 +322,11 @@ def fig_pareto_plane(art, fig_dir=FIG_DIR):
     # Sweep-direction arrows (outline chevrons) on all three curves, matching
     # the non-smearing figure.
     _segment_arrows(ax, B["r_tilde"], B["nll_over_n"], M1_COLOUR,
-                    n_arrows=2, outline=True)
+                    n_arrows=2, outline=True, arrow_size=TOY_ARROW_SIZE)
     _segment_arrows(ax, C["r_tilde"], C["nll_over_n"], M4_COLOUR,
-                    n_arrows=2, outline=True)
-    _segment_arrows(ax, cut_r, cut_nll, cut_colour, n_arrows=2, outline=True)
+                    n_arrows=2, outline=True, arrow_size=TOY_ARROW_SIZE)
+    _segment_arrows(ax, cut_r, cut_nll, cut_colour, n_arrows=2, outline=True,
+                    arrow_size=TOY_ARROW_SIZE)
 
     # First / best (knee) / last parameter-value labels on the two method
     # sweeps. Here best is the literal lower-left knee of this plane.
