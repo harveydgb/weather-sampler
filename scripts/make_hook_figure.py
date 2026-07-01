@@ -97,7 +97,11 @@ def make_region(latlons, iid, era5):
         ax.set_xticks([])
         ax.set_yticks([])
     fig.subplots_adjust(left=0.02, right=0.9, bottom=0.04, top=0.93, wspace=0.06)
-    cbar_ax = fig.add_axes([0.915, 0.1, 0.017, 0.76])
+    # Match the colour bar to the aspect-constrained panel height: realise the
+    # geometry with a draw, then take the right panel's actual (post-aspect) box.
+    fig.canvas.draw()
+    panel = axes[1].get_position()
+    cbar_ax = fig.add_axes([0.915, panel.y0, 0.017, panel.height])
     fig.colorbar(sc, cax=cbar_ax, label="2-metre temperature (standardised)")
     fig.savefig(OUT_REGION, dpi=200)
     print(f"wrote {OUT_REGION.relative_to(REPO_ROOT)}")
