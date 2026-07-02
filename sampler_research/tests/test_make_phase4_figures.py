@@ -73,11 +73,25 @@ _FORECAST_STEP8 = "phase_4_fc48_14ep_step8"
 )
 def test_forecast_figures_point_at_step8_render(stem):
     """The Ch5 forecast field figures must \\includegraphics the +48h
-    converged step-8 render, and that asset must exist."""
-    text = THESIS.read_text()
-    includes = re.findall(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]*" + re.escape(stem) + r")\}", text)
-    assert includes, f"no \\includegraphics for {stem} in thesis.tex"
+    converged step-8 render, and that asset must exist. The appendices may
+    show the OTHER regimes of the same stems on purpose (App B recon-regime
+    sweep, App C recon + per-lead maps -- 2 Jul PM rulings 2/3), but only
+    from the known re-rendered set, never a stale path."""
+    pattern = r"\\includegraphics(?:\[[^\]]*\])?\{([^}]*" + re.escape(stem) + r")\}"
+    main_text, _, appendix = THESIS.read_text().partition("\n\\appendix")
+    includes = re.findall(pattern, main_text)
+    assert includes, f"no \\includegraphics for {stem} in thesis.tex main text"
     for path in includes:
         assert path == f"{_FORECAST_STEP8}/{stem}", (
             f"{stem} should resolve to the +48h step-8 render, got {path!r}")
         assert (FIG_DIR / path).exists(), f"missing forecast render asset: {path}"
+    allowed_appendix = {
+        stem,  # root render = reconstruction regime (step 0)
+        f"phase_4_fc48_14ep_step1/{stem}",  # +6h per-lead render
+        f"phase_4_fc48_14ep_step4/{stem}",  # +24h per-lead render
+        f"{_FORECAST_STEP8}/{stem}",
+    }
+    for path in re.findall(pattern, appendix):
+        assert path in allowed_appendix, (
+            f"appendix include of {stem} outside the allowed renders: {path!r}")
+        assert (FIG_DIR / path).exists(), f"missing appendix render asset: {path}"

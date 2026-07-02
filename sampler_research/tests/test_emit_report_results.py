@@ -436,6 +436,33 @@ def test_build_crps_extremum_macros_placeholder_when_absent():
     assert m.build_crps_extremum_macros(rows)["deltaCrpsMaxAbs"] == m.PLACEHOLDER
 
 
+def test_build_crps_extremum_macros_analytic_min_anchor():
+    """R-12 anchor: the SMALLEST mean per-cell analytic CRPS over the same
+    converged single+init rows the |dCRPS| max scans; 6ep and init_mean rows
+    are excluded, and a missing column falls back to the placeholder without
+    disturbing the delta extremum."""
+    m = _load()
+    rows = [
+        {"run": "6ep", "kind": "single",
+         "iid_delta_crps": -0.5, "iid_analytic_crps": 0.001},   # 6ep -> ignored
+        {"run": "14ep", "kind": "single",
+         "iid_delta_crps": 3.0e-5, "iid_analytic_crps": 0.0561},
+        {"run": "14ep", "kind": "init",
+         "iid_delta_crps": -9.5e-5, "iid_analytic_crps": 0.0441},  # min anchor
+        {"run": "14ep", "kind": "init_mean",
+         "iid_delta_crps": -0.9, "iid_analytic_crps": 0.002},   # aggregate -> ignored
+    ]
+    macros = m.build_crps_extremum_macros(rows)
+    assert macros["crpsAnalyticMinConverged"] == "0.044"
+    assert macros["deltaCrpsMaxAbs"] == r"9.5\times10^{-5}"
+
+    # column absent entirely -> placeholder for the anchor only
+    bare = [{"run": "14ep", "kind": "single", "iid_delta_crps": 3.0e-5}]
+    macros = m.build_crps_extremum_macros(bare)
+    assert macros["crpsAnalyticMinConverged"] == m.PLACEHOLDER
+    assert macros["deltaCrpsMaxAbs"] == r"3.0\times10^{-5}"
+
+
 def test_fmt_sci_two_sig_figs_and_placeholder():
     m = _load()
     assert m.fmt_sci(9.4556e-5) == r"9.5\times10^{-5}"
@@ -606,3 +633,231 @@ def test_emit_allow_empty_writes_placeholders(tmp_path):
     text = (tmp_path / "macros-results.tex").read_text()
     assert r"\newcommand{\reconstructionLambdaStar}{93.7}" in text  # documented fallback
     assert r"\maxPiFortyEightConverged" in text  # placeholder line still emitted
+
+
+# -------------------------------- Round-1 review emissions (2 Jul worklist)
+def test_build_stratum_constant_macros_match_pipeline_rule():
+    """DEC-1(c): the rendered stratum constants are read from the pipeline rule's
+    own signature defaults (phase4_eval.practically_bimodal_mask), so the S5.2
+    definition and the mask every stratified number uses cannot diverge. Pins the
+    rendered strings AND re-derives them from the rule."""
+    import inspect
+
+    from sampler_research.phase4_eval import practically_bimodal_mask
+
+    m = _load()
+    macros = m.build_stratum_constant_macros()
+    params = inspect.signature(practically_bimodal_mask).parameters
+    assert macros["stratumPiGate"] == format(params["pi_min"].default, "g") == "0.1"
+    assert (macros["stratumSepMultiplier"]
+            == format(params["min_separation"].default, "g") == "2")
+
+
+@needs_fc_converged
+def test_build_enrichment_ratio_macros_pin_pr1_values():
+    """PR-1 condition 1: the eight S5.5 enrichment-rewrite ratios reproduce the
+    2 Jul log/ruling values from the persisted canonical +48h artifacts -- Joint
+    MAP de-enriched (0.69x) in the 2-sigma stratum at the 0.125-nat headline cut
+    but 1.34x at the 0.5-nat deep cut; blur 0.59x / 0.44x there; 1-sigma headline
+    1.23x vs 0.77x. Computed exactly as the enrichment figure's bars."""
+    m = _load()
+    macros = m.build_enrichment_ratio_macros(FC_CONVERGED_RUN)
+    assert macros["enrichMethodTwoSigmaHeadline"] == "0.69"
+    assert macros["enrichMethodTwoSigmaDeep"] == "1.34"
+    assert macros["enrichMethodOneSigmaHeadline"] == "1.23"
+    assert macros["enrichMethodOneSigmaDeep"] == "1.27"
+    assert macros["enrichBlurTwoSigmaHeadline"] == "0.59"
+    assert macros["enrichBlurTwoSigmaDeep"] == "0.44"
+    assert macros["enrichBlurOneSigmaHeadline"] == "0.77"
+    assert macros["enrichBlurOneSigmaDeep"] == "0.67"
+
+
+def test_build_enrichment_ratio_macros_placeholders_when_absent(tmp_path):
+    m = _load()
+    macros = m.build_enrichment_ratio_macros(tmp_path)  # no artifacts under here
+    assert set(macros) == set(m.ENRICH_MACROS)
+    assert all(v == m.PLACEHOLDER for v in macros.values())
+
+
+@needs_fc_converged
+def test_build_threshold_sensitivity_macros_pin_dec4_values():
+    """DEC-4: the sensitivity macros reproduce the 2 Jul log numbers exactly via
+    the pipeline's own `_bootstrap_frac_ci` at varied threshold (production seed,
+    no new runs) -- the stratified gap still favours the sampler at the 0.25-nat
+    (~0.7-sigma-equivalent) cut, -0.034 CI [-0.045, -0.023], reverses only at the
+    0.5-nat deep cut, +0.017 CI [+0.008, +0.027], where Joint MAP's deep tail is
+    6.3% of the stratum. The headline 0.125-nat macros are untouched (their own
+    pins above cover that)."""
+    m = _load()
+    macros = m.build_threshold_sensitivity_macros(FC_CONVERGED_RUN)
+    assert macros["fcBimodalFracGapQuarterNat"] == "-0.034"
+    assert macros["fcBimodalFracGapQuarterNatLo"] == "-0.045"
+    assert macros["fcBimodalFracGapQuarterNatHi"] == "-0.023"
+    assert macros["fcBimodalFracGapHalfNat"] == "+0.017"
+    assert macros["fcBimodalFracGapHalfNatLo"] == "+0.008"
+    assert macros["fcBimodalFracGapHalfNatHi"] == "+0.027"
+    assert macros["fcDeepTailStratumFrac"] == r"6.3\%"
+
+
+def test_build_threshold_sensitivity_macros_placeholders_when_absent(tmp_path):
+    m = _load()
+    macros = m.build_threshold_sensitivity_macros(tmp_path)
+    assert macros["fcBimodalFracGapQuarterNat"] == m.PLACEHOLDER
+    assert macros["fcBimodalFracGapHalfNatHi"] == m.PLACEHOLDER
+    assert macros["fcDeepTailStratumFrac"] == m.PLACEHOLDER
+
+
+@needs_fc_spectra
+def test_build_spectrum_resolution_macro_pins_ell_res():
+    """DEC-9: \\spectrumEllRes is the artifact's own lmax_resolved (the empirical
+    Parseval ceiling, 16 Jun log: 191), never hand-typed."""
+    m = _load()
+    macros = m.build_spectrum_resolution_macro(FC_CONVERGED_RUN.parent)
+    assert macros["spectrumEllRes"] == "191"
+
+
+def test_build_spectrum_resolution_macro_placeholder_when_absent(tmp_path):
+    m = _load()
+    assert m.build_spectrum_resolution_macro(tmp_path) == {
+        "spectrumEllRes": m.PLACEHOLDER}
+
+
+@needs_fc_converged
+def test_build_restart_stability_macro_pins_probe_shift():
+    """PR-4: the restart-stability sentence's evidence is the persisted
+    seed-stability probe, never the across-init lambda* range (which measures
+    initial-condition variation, not restarts). Pins the worst-case reseeded
+    lambda* shift on the canonical +48h run: 81.3387 -> 81.3403, i.e. 1.6e-3."""
+    m = _load()
+    macros = m.build_restart_stability_macro(FC_CONVERGED_RUN)
+    assert macros["lambdaStarRestartMaxShift"] == r"1.6\times10^{-3}"
+
+
+def test_build_restart_stability_macro_placeholder_when_absent(tmp_path):
+    m = _load()
+    assert m.build_restart_stability_macro(tmp_path) == {
+        "lambdaStarRestartMaxShift": m.PLACEHOLDER}
+
+
+# ---------------------- App D certificate + App E compute macros (2 Jul PM rulings)
+STAGE_B_TV_CSV = REPO_ROOT / "outputs" / "runs" / "stage_b_tv_ablation" / "stage_b_tv_scores.csv"
+STAGE_D_CSV = REPO_ROOT / "outputs" / "runs" / "stage_d_method5_langevin" / "stage_d_scores.csv"
+needs_certificate_csvs = pytest.mark.skipif(
+    not (STAGE_B_TV_CSV.exists() and STAGE_D_CSV.exists()),
+    reason="toy certificate CSV artifacts absent",
+)
+
+
+def _quad_row(lam, delta_j, bound, beats):
+    return {"arm": "cut-quad", "lambda": lam, "delta_j_vs_stage_b": delta_j,
+            "quantisation_bound": bound, "beats_stage_b": beats}
+
+
+def _cut_tv_row(lam, matches):
+    return {"arm": "cut-tv", "lambda": lam, "adam_matches_cut": matches}
+
+
+CERT_TV_ROWS = [
+    _quad_row(0.0, -0.023, 3e-05, "True"),
+    _quad_row(0.05, -0.089, 3e-05, "True"),
+    _quad_row(0.1, -0.051, 3e-05, "False"),
+    _quad_row(0.2, -0.007, 3e-05, "False"),
+    _quad_row(0.5, 2.7e-06, 3e-05, "False"),
+    _quad_row(1.0, 3.3e-06, 3e-05, "False"),
+    _quad_row(2.0, 2.9e-07, 3e-05, "False"),
+    _cut_tv_row(0.0, "False"),
+    _cut_tv_row(0.1, "False"),
+    _cut_tv_row(0.2, "False"),
+    _cut_tv_row(0.5, "True"),
+    _cut_tv_row(1.0, "True"),
+]
+CERT_M5_ROWS = [
+    {"lambda": 0.05, "delta_j_vs_method1": -0.02813800736,
+     "chain_energy_spread": 0.03090128230, "material_improvement": "True"},
+    {"lambda": 0.2, "delta_j_vs_method1": -6.0e-08,
+     "chain_energy_spread": 0.074, "material_improvement": "False"},
+]
+
+
+def test_build_certificate_macros_derives_thresholds():
+    """Decision 5: the five certificate numbers are DERIVED from the CSV rows
+    (certified suffix / within-floor band / failure prefix / single flagged
+    Langevin case), never pinned in the emitter."""
+    m = _load()
+    macros = m.build_certificate_macros(CERT_TV_ROWS, CERT_M5_ROWS)
+    assert macros["certQuadLambdaGlobalMin"] == "0.5"
+    assert macros["certQuadFloorLambdaLo"] == "0.1"
+    assert macros["certQuadFloorLambdaHi"] == "0.2"
+    assert macros["certTvFailLambdaMax"] == "0.2"
+    assert macros["certLangevinDeltaJ"] == "-0.0281"
+    assert macros["certLangevinChainSpread"] == "0.031"
+
+
+def test_build_certificate_macros_placeholders_when_absent():
+    m = _load()
+    macros = m.build_certificate_macros([], [])
+    assert all(v == m.PLACEHOLDER for v in macros.values())
+
+
+def test_build_certificate_macros_rejects_broken_structure():
+    """The structural assertions fail loudly if the certificate story changes:
+    a non-suffix certified set, or a flagged Langevin case OUTSIDE its own
+    chain spread, must raise rather than silently re-number the appendix."""
+    m = _load()
+    broken_quad = [r if r["lambda"] != 1.0 else dict(r, delta_j_vs_stage_b=-0.5)
+                   for r in CERT_TV_ROWS]
+    with pytest.raises(ValueError):
+        m.build_certificate_macros(broken_quad, CERT_M5_ROWS)
+    outside_spread = [dict(CERT_M5_ROWS[0], chain_energy_spread=0.01)]
+    with pytest.raises(ValueError):
+        m.build_certificate_macros(CERT_TV_ROWS, outside_spread)
+
+
+@needs_certificate_csvs
+def test_build_certificate_macros_pins_committed_artifacts():
+    """The committed certificate CSVs must yield exactly the numbers the App D
+    passage quotes (handoff-verified 2 Jul): certified-global from lambda=0.5,
+    floor band 0.1-0.2, TV failure through 0.2, flagged dJ=-0.0281 inside its
+    0.031 chain spread."""
+    m = _load()
+    macros = m.build_certificate_macros(
+        m._read_csv_numeric(STAGE_B_TV_CSV), m._read_csv_numeric(STAGE_D_CSV))
+    assert macros == {
+        "certQuadLambdaGlobalMin": "0.5",
+        "certQuadFloorLambdaLo": "0.1",
+        "certQuadFloorLambdaHi": "0.2",
+        "certTvFailLambdaMax": "0.2",
+        "certLangevinDeltaJ": "-0.0281",
+        "certLangevinChainSpread": "0.031",
+    }
+
+
+COMPUTE_RECORD = {
+    "jobs": {
+        "ae_training": {"elapsed": "11:49:35"},
+        "forecast_training_v2": {"elapsed": "10:07:05"},
+        "extraction": {"elapsed": "00:01:11"},
+    }
+}
+COMPUTE_TIMINGS = {
+    "knn_graph_s": 0.558, "anchors_s": 0.022, "mode_extraction_s": 3.098,
+    "m1_sweep_s": 37.482, "m4_sweep_s": 35.008, "icm_s_per_sweep": 1.094,
+    "scores_s": 0.979, "variograms_s": 0.083,
+}
+
+
+def test_build_compute_macros_formats_wall_times():
+    """Decision 6: wall-times from the once-persisted sacct record; the audit
+    total sums the timed stages and excludes the icm per-sweep RATE entry."""
+    m = _load()
+    macros = m.build_compute_macros(COMPUTE_RECORD, COMPUTE_TIMINGS)
+    assert macros["computeAeWallHours"] == "11.8"
+    assert macros["computeForecastWallHours"] == "10.1"
+    assert macros["computeExtractionWallMinutes"] == "1.2"
+    assert macros["computeAuditWallSeconds"] == "77"
+
+
+def test_build_compute_macros_placeholders_when_absent():
+    m = _load()
+    macros = m.build_compute_macros(None, None)
+    assert all(v == m.PLACEHOLDER for v in macros.values())

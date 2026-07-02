@@ -1,6 +1,6 @@
 """Phase 1/2 TOY report figures from the persisted stage_* artifacts.
 
-Generates the two synthetic-testbed figures the report includes, replacing the
+Generates the synthetic-testbed figures the report includes, replacing the
 old notebook exports so the report no longer depends on notebook execution
 (notebooks 02/03 are now exploratory only):
 
@@ -19,6 +19,12 @@ old notebook exports so the report no longer depends on notebook execution
       TV (Adam) arm is omitted from this main-text figure (it fails its own
       min-cut optimality certificate below lambda=0.2 and is dominated); it
       remains a pipeline quantity available for Appendix F.
+  phase_2_stage_bc_pareto_homoscedastic.png
+      Appendix full-sweep plane: every swept Joint MAP (lambda) and
+      Mode-selection MRF (beta) configuration against the Stage A anchors,
+      including the off-scale Independent draw the main-text plane omits.
+      A display-name re-render of the retired notebook export of the same
+      name, read from the same persisted stage_* artifacts.
 
 House style -- colours, markers and display names -- is shared with the real
 Phase-4 figures via `sampler_research.plotting`, so a reader can map toy -> real.
@@ -220,7 +226,7 @@ def fig_nonsmearing(art, fig_dir=FIG_DIR):
         _anchor(ax2, art, key, d["frac_over"][0], ci=smear_tail_ci(d["per_cell"]),
                 **anchor_labels_right[key])
     ax2.set_xscale("linear")
-    ax2.set_xlabel("$\\tilde{R}$")
+    ax2.set_xlabel("Normalised roughness ($\\tilde{R}$)")
     ax2.set_ylabel("fraction of cells $>0.5\\sigma$ off mode")
     ax2.set_title("Smear tail past $0.5\\sigma$ (95% within-field CI)")
     ax2.grid(True, alpha=0.3)
@@ -287,11 +293,13 @@ def fig_pareto_plane(art, fig_dir=FIG_DIR):
     # research_notes/phase_2.md and report_plan.md for the rationale.
 
     # TV (exact) min-cut frontier; variance-collapsed points (lambda >= 2) have
-    # an undefined R~ and are excluded, exactly as in the notebook.
+    # an undefined R~ and are excluded, exactly as in the notebook. Drawn with
+    # diamond markers on a dashed line so it never relies on colour alone to
+    # separate from the Mode-selection MRF where the two overlap near the origin.
     collapsed = np.array([r["variance_collapsed"] == "True" for r in art["rows_cut"]])
     cut_r = T["cut_tv_r_tilde"][~collapsed]
     cut_nll = T["cut_tv_nll_over_n"][~collapsed]
-    ax.plot(cut_r, cut_nll, "o-", color=cut_colour, lw=2,
+    ax.plot(cut_r, cut_nll, "D--", color=cut_colour, lw=2,
             ms=SWEEP_MARKER_SIZE,
             label=display_name("tv_cut") + " ($\\lambda:0\\to1$ shown)")
 
@@ -310,7 +318,7 @@ def fig_pareto_plane(art, fig_dir=FIG_DIR):
         )
 
     ax.set_xscale("linear")
-    ax.set_xlabel("$\\tilde{R} = S_{\\mathrm{edge}}/\\mathrm{Var}(V)$")
+    ax.set_xlabel("Normalised roughness ($\\tilde{R} = S_{\\mathrm{edge}}/\\mathrm{Var}(V)$)")
     ax.set_ylabel("NLL/$N$ (nats)")
     # Title names the plane and the reading direction only; the interpretive
     # findings (TV collapse, the quadratic reaching R~ ~= 0.25) live in the
@@ -367,7 +375,79 @@ def fig_pareto_plane(art, fig_dir=FIG_DIR):
     return out
 
 
-FIGURES = {"nonsmearing": fig_nonsmearing, "pareto": fig_pareto_plane}
+def fig_full_plane(art, fig_dir=FIG_DIR):
+    """Appendix full-sweep plane -> phase_2_stage_bc_pareto_homoscedastic.png.
+
+    The complete lambda+beta grids behind the Stage B/C selections: both full
+    method sweeps on the (NLL/N, R~) plane against the Stage A anchors,
+    including the Independent draw at R~ = 2.077 that the main-text figures
+    omit as off-scale. Content matches the retired notebook export it
+    replaces; only the display names and house style change (no sweep is
+    re-run here).
+    """
+    B, C = art["B"], art["C"]
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    ax.plot(B["r_tilde"], B["nll_over_n"], "o-", color=M1_COLOUR, lw=2,
+            ms=SWEEP_MARKER_SIZE,
+            label="Joint MAP (quad $\\lambda:0\\to2$)")
+    ax.plot(C["r_tilde"], C["nll_over_n"], "o-", color=M4_COLOUR, lw=2,
+            ms=SWEEP_MARKER_SIZE,
+            label="Mode-selection MRF ($\\beta:0\\to0.1$)")
+
+    # All four anchors of the notebook export, iid included: showing the full
+    # bracket is the point of this appendix panel.
+    anchor_labels = {
+        "iid": dict(annotate_xy=(-8, 4), annotate_ha="right"),
+        "mode_map": dict(annotate_xy=(-8, 4), annotate_ha="right"),
+        "a_star": dict(annotate_xy=(0, 14), annotate_ha="center"),
+        "smoothed_map": dict(annotate_xy=(6, 4)),
+    }
+    for key, placement in anchor_labels.items():
+        _anchor(ax, art, key, float(art["scores_a"][key]["nll_over_n"]),
+                **placement)
+
+    ax.set_xscale("linear")
+    ax.set_xlabel("Normalised roughness ($\\tilde{R} = S_{\\mathrm{edge}}/\\mathrm{Var}(V)$)")
+    ax.set_ylabel("NLL/$N$ (nats)")
+    ax.set_title("Full $\\lambda$ and $\\beta$ sweeps (lower-left is better)")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8)
+
+    _segment_arrows(ax, B["r_tilde"], B["nll_over_n"], M1_COLOUR,
+                    n_arrows=2, outline=True, arrow_size=TOY_ARROW_SIZE)
+    _segment_arrows(ax, C["r_tilde"], C["nll_over_n"], M4_COLOUR,
+                    n_arrows=2, outline=True, arrow_size=TOY_ARROW_SIZE)
+
+    b_best = _knee_index(B["r_tilde"], B["nll_over_n"])  # lambda* = 0.2
+    c_best = _knee_index(C["r_tilde"], C["nll_over_n"])  # beta*  = 0.05
+    _sweep_param_labels(
+        ax, B["r_tilde"], B["nll_over_n"], B["lambdas"], b_best,
+        "\\lambda", M1_COLOUR, placements={
+            "first": dict(xytext=(8, -3), ha="left", va="center"),
+            "best": dict(xytext=(-6, -2), ha="right", va="center"),
+            "last": dict(xytext=(-6, 3), ha="right", va="center"),
+        },
+    )
+    _sweep_param_labels(
+        ax, C["r_tilde"], C["nll_over_n"], C["betas"], c_best,
+        "\\beta", M4_COLOUR, placements={
+            "first": dict(xytext=(3, 8), ha="left", va="bottom"),
+            "best": dict(xytext=(0, -8), ha="center", va="top"),
+            "last": dict(xytext=(-3, 8), ha="right", va="bottom"),
+        },
+    )
+    out = Path(fig_dir) / "phase_2_stage_bc_pareto_homoscedastic.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"wrote {out.name}")
+    return out
+
+
+FIGURES = {"nonsmearing": fig_nonsmearing, "pareto": fig_pareto_plane,
+           "fullplane": fig_full_plane}
 
 
 def main():

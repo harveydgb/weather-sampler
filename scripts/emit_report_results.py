@@ -27,6 +27,7 @@ import numpy as np
 
 from sampler_research import faithfulness as fth
 from sampler_research import method4_mrf as rm4
+from sampler_research import phase4_eval
 from sampler_research.io import load_sampler_arrays
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -744,29 +745,44 @@ def build_faithfulness_spread_macros(faith_rows):
 
 
 def build_crps_extremum_macros(faith_rows):
-    """Pure: worst-case |iid_delta_crps| over CONVERGED single+init rows (C2).
+    """Pure: worst-case |iid_delta_crps| over CONVERGED single+init rows (C2),
+    plus the smallest mean per-cell analytic CRPS over the SAME rows (R-12).
 
     Scans every converged per-lead, per-init row (`run` == the Converged label,
     `kind` in {single, init}); the across-init aggregate (`init_mean`) and the
     6-epoch context column are excluded. Emits `\\deltaCrpsMaxAbs` in
     sci-notation so the do-no-harm bound can be stated numerically even though
-    the per-lead \\DeltaCRPS\\ rounds to +/-0.000 at three decimals. Empty -> placeholder."""
+    the per-lead \\DeltaCRPS\\ rounds to +/-0.000 at three decimals, and
+    `\\crpsAnalyticMinConverged`, the anchor the null is read against: pairing
+    the max |delta| with the min analytic CRPS makes the null-vs-scale bound
+    hold at every lead and initialisation. Empty -> placeholder."""
 
     converged = COL_TO_LABEL["Converged"]
-    vals = []
-    for r in faith_rows:
-        if r.get("run") != converged or r.get("kind", "single") not in ("single", "init"):
-            continue
-        v = _maybe_num(r.get("iid_delta_crps"))
+    deltas, anchors = [], []
+
+    def _finite(raw):
+        v = _maybe_num(raw)
         if v is None:
-            continue
+            return None
         try:
             f = float(v)
         except (TypeError, ValueError):
+            return None
+        return f if np.isfinite(f) else None
+
+    for r in faith_rows:
+        if r.get("run") != converged or r.get("kind", "single") not in ("single", "init"):
             continue
-        if np.isfinite(f):
-            vals.append(abs(f))
-    return {"deltaCrpsMaxAbs": fmt_sci(max(vals)) if vals else PLACEHOLDER}
+        f = _finite(r.get("iid_delta_crps"))
+        if f is not None:
+            deltas.append(abs(f))
+        a = _finite(r.get("iid_analytic_crps"))
+        if a is not None:
+            anchors.append(a)
+    return {
+        "deltaCrpsMaxAbs": fmt_sci(max(deltas)) if deltas else PLACEHOLDER,
+        "crpsAnalyticMinConverged": fmt_pi(min(anchors)) if anchors else PLACEHOLDER,
+    }
 
 
 # ----------------------------------------- ERA5 spectrum bracket (S5.5) scalars
@@ -899,6 +915,260 @@ def build_bimodal_geography_macros(run_dir):
     return macros
 
 
+# ---------------------------------------- DEC-1(c) stratum-definition constants
+# The bimodal-stratum selection rule's two fixed analysis constants (the pi >= 0.1
+# weight gate and the 2-sigma separation multiplier), read from the pipeline rule
+# itself (`phase4_eval.practically_bimodal_mask` signature defaults) rather than
+# re-typed here, so the S5.2 rendered definition can never drift from the mask
+# every stratified number is computed on.
+def build_stratum_constant_macros():
+    """Pure: the bimodal-rule constants -> `\\stratumPiGate` / `\\stratumSepMultiplier`."""
+
+    import inspect
+
+    params = inspect.signature(phase4_eval.practically_bimodal_mask).parameters
+    return {
+        "stratumPiGate": format(params["pi_min"].default, "g"),
+        "stratumSepMultiplier": format(params["min_separation"].default, "g"),
+    }
+
+
+# ------------------------------------------ PR-1 enrichment ratios (S1-1 rewrite)
+# The S5.5 enrichment-rewrite ratios (PR-1 condition 1: every rendered ratio
+# macro-emitted, never hand-typed): frac(dNLL > cut | stratum) / frac(dNLL > cut),
+# computed from the persisted per-cell deltas + masks EXACTLY as the enrichment
+# figure's bars are (make_phase4_figures.fig_bimodal_enrichment), for Joint MAP
+# and the blur, on the 2-sigma and 1-sigma strata, at the 0.125-nat headline cut
+# and the 0.5-nat deep cut (the DEC-4 deep tail, phase4_eval.DNLL_THRESHOLDS[1]).
+ENRICH_CUTS = ((BOOT_THRESHOLD, "Headline"), (phase4_eval.DNLL_THRESHOLDS[1], "Deep"))
+ENRICH_STRATA = (("bimodal", "TwoSigma"), ("bimodal_1sigma", "OneSigma"))
+ENRICH_METHODS = ((BOOT_METHOD, "Method"), (BOOT_BLUR, "Blur"))
+ENRICH_MACROS = tuple(
+    f"enrich{mfix}{sfix}{cfix}"
+    for _, mfix in ENRICH_METHODS for _, sfix in ENRICH_STRATA for _, cfix in ENRICH_CUTS
+)
+
+
+def build_enrichment_ratio_macros(run_dir):
+    """Figure-faithful enrichment ratios from delta_per_cell.npz + masks.npz.
+
+    Emits the eight `enrich{Method,Blur}{TwoSigma,OneSigma}{Headline,Deep}` ratios
+    (2 d.p., matching the figure's bar heights at the headline cut). Any absent
+    artifact/key -> em-dash placeholders, so a fresh clone still compiles."""
+
+    blank = {name: PLACEHOLDER for name in ENRICH_MACROS}
+    run_dir = Path(run_dir)
+    delta_path, masks_path = run_dir / "delta_per_cell.npz", run_dir / "masks.npz"
+    if not delta_path.exists() or not masks_path.exists():
+        return blank
+    with np.load(delta_path) as f:
+        if not all(key in f.files for key, _ in ENRICH_METHODS):
+            return blank
+        deltas = {key: np.asarray(f[key], dtype=float) for key, _ in ENRICH_METHODS}
+    with np.load(masks_path) as f:
+        if not all(key in f.files for key, _ in ENRICH_STRATA):
+            return blank
+        masks = {key: np.asarray(f[key], dtype=bool) for key, _ in ENRICH_STRATA}
+    macros = {}
+    for mkey, mfix in ENRICH_METHODS:
+        d = deltas[mkey]
+        for skey, sfix in ENRICH_STRATA:
+            sel = masks[skey]
+            for cut, cfix in ENRICH_CUTS:
+                global_frac = float(np.mean(d > cut))
+                mask_frac = float(np.mean(d[sel] > cut))
+                macros[f"enrich{mfix}{sfix}{cfix}"] = _fmt(
+                    mask_frac / global_frac if global_frac > 0 else None, ".2f")
+    return macros
+
+
+# --------------------------------------- DEC-4 threshold-sensitivity macros (S5.5)
+# The sensitivity sentence's numbers: the stratified (2-sigma bimodal) gap at the
+# 0.25-nat (~0.7-sigma-equivalent) cut where it still favours the sampler and at
+# the 0.5-nat deep cut where it reverses, plus the deep-tail stratum fraction
+# (Joint MAP's frac > 0.5 nat within the stratum, the ~6% of DEC-4's
+# decomposition). Thin wrapper on `_bootstrap_frac_ci` at varied threshold -- the
+# exact reproduction path of the 2 Jul log entry; no new runs, and the headline
+# 0.125-nat macros above are untouched.
+SENSITIVITY_QUARTER_CUT = 0.25
+SENSITIVITY_DEEP_CUT = phase4_eval.DNLL_THRESHOLDS[1]  # 0.5 nat
+
+
+def _ci_delta_macros(base, ci_rec):
+    """Signed (+/-) point + CI-bound macros, for gap quantities whose sign is
+    the story (the DEC-4 ruling quotes them signed: -0.034 ... +0.017)."""
+
+    if not ci_rec:
+        return {base: PLACEHOLDER, f"{base}Lo": PLACEHOLDER, f"{base}Hi": PLACEHOLDER}
+    return {base: fmt_delta(ci_rec["point"]),
+            f"{base}Lo": fmt_delta(ci_rec["lo"]), f"{base}Hi": fmt_delta(ci_rec["hi"])}
+
+
+def build_threshold_sensitivity_macros(run_dir):
+    """DEC-4: `fcBimodalFracGap{QuarterNat,HalfNat}{,Lo,Hi}` + `\\fcDeepTailStratumFrac`
+    from the canonical +48h run's persisted per-cell deltas. Absent -> placeholders."""
+
+    quarter = _bootstrap_frac_ci(run_dir, ("bimodal",),
+                                 threshold=SENSITIVITY_QUARTER_CUT).get("bimodal", {})
+    deep = _bootstrap_frac_ci(run_dir, ("bimodal",),
+                              threshold=SENSITIVITY_DEEP_CUT).get("bimodal", {})
+    macros = {}
+    macros.update(_ci_delta_macros("fcBimodalFracGapQuarterNat", quarter.get("gap")))
+    macros.update(_ci_delta_macros("fcBimodalFracGapHalfNat", deep.get("gap")))
+    deep_m1 = deep.get("m1")
+    macros["fcDeepTailStratumFrac"] = (
+        fmt_pct(deep_m1["point"]) if deep_m1 else PLACEHOLDER)
+    return macros
+
+
+# ------------------------------------------- PR-4 lambda* restart stability (S5.4)
+# Evidence behind "stable to the optimiser's random restarts": the persisted
+# seed-stability probe (robustness_probes.json `lambda_star_seed_stability`,
+# run_phase4_probes.py) re-solves the resolved sweep rows with the restart RNG
+# reseeded (+1000/+2000 offsets, same 4-restart optimiser) and re-runs the
+# lambda* selection. The macro is the worst-case |lambda*(reseeded) - lambda*(base)|
+# over the offsets -- across-RESTART variation, deliberately distinct from the
+# across-INIT range macros (forecastLambdaStarConverged{Lo,Hi}), which measure
+# variation across initial conditions and must never be quoted as restart evidence.
+def build_restart_stability_macro(run_dir):
+    """`\\lambdaStarRestartMaxShift` from the canonical run's persisted probe.
+    Missing file/probe/offsets -> em-dash placeholder."""
+
+    path = Path(run_dir) / "robustness_probes.json"
+    if not path.exists():
+        return {"lambdaStarRestartMaxShift": PLACEHOLDER}
+    rec = json.loads(path.read_text()).get("lambda_star_seed_stability", {})
+    base = rec.get("base_lambda_star")
+    offsets = rec.get("offsets", {})
+    shifts = [abs(float(o["lambda_star"]) - float(base))
+              for o in offsets.values() if o.get("lambda_star") is not None
+              ] if base is not None else []
+    return {"lambdaStarRestartMaxShift": fmt_sci(max(shifts)) if shifts else PLACEHOLDER}
+
+
+# ----------------------------------------------- DEC-9 resolved-band ceiling l_res
+def build_spectrum_resolution_macro(runs_dir):
+    """`\\spectrumEllRes`: the spectrum's resolved-band ceiling l_res, read from the
+    canonical +48h step-8 spectra.npz `lmax_resolved` (the empirical Parseval
+    ceiling the transform reports; 16 Jun log). Absent -> placeholder."""
+
+    path = Path(runs_dir) / "phase_4_fc48_14ep_step8" / "spectra.npz"
+    if not path.exists():
+        return {"spectrumEllRes": PLACEHOLDER}
+    with np.load(path) as d:
+        return {"spectrumEllRes": str(int(d["lmax_resolved"]))}
+
+
+# ------------------------------------------- App D optimality-certificate macros
+# (decision 5, 2 Jul PM): the three toy optimality certificates quoted in the
+# numerical-implementation appendix. All five numbers are DERIVED from the
+# persisted certificate CSVs rather than pinned, so a re-run of the ablations
+# re-derives them; the structural assertions fail loudly if the certificate
+# story itself changes (in which case the appendix prose must be revisited,
+# not silently re-numbered).
+def build_certificate_macros(tv_rows, m5_rows):
+    """Certificate macros from stage_b_tv_scores.csv + stage_d_scores.csv rows.
+
+    * certQuadLambdaGlobalMin -- smallest lambda from which the exact min-cut
+      solution of the discretised quadratic objective matches Adam's energy to
+      within the discretisation's own quantisation bound (and at every larger
+      lambda: the certified set must be a suffix of the grid).
+    * certQuadFloorLambdaLo/Hi -- the contiguous lambda range just below that
+      threshold where the cut solution is better but only within the Stage B
+      restart-to-restart floor (`beats_stage_b` False).
+    * certTvFailLambdaMax -- largest lambda at which Adam-on-Huber fails its
+      min-cut certificate (`adam_matches_cut` False); failures must form a
+      prefix of the lambda grid.
+    * certLangevinDeltaJ / certLangevinChainSpread -- the single flagged
+      annealed-Langevin improvement (`material_improvement` True) and that
+      run's own chain-to-chain energy spread, which must contain it.
+
+    Both inputs absent -> all placeholders (fresh-clone behaviour).
+    """
+
+    out = {name: PLACEHOLDER for name in (
+        "certQuadLambdaGlobalMin", "certQuadFloorLambdaLo",
+        "certQuadFloorLambdaHi", "certTvFailLambdaMax",
+        "certLangevinDeltaJ", "certLangevinChainSpread")}
+
+    quad = sorted((r for r in tv_rows if r["arm"] == "cut-quad"),
+                  key=lambda r: float(r["lambda"]))
+    if quad:
+        certified = [r for r in quad
+                     if abs(float(r["delta_j_vs_stage_b"]))
+                     <= float(r["quantisation_bound"])]
+        if not certified or certified != quad[len(quad) - len(certified):]:
+            raise ValueError("cut-quad certified set is not a lambda-grid suffix")
+        floor = [r for r in quad if r not in certified
+                 and r["beats_stage_b"] == "False"]
+        below = [r for r in quad if r not in certified and r not in floor]
+        if not floor or [float(r["lambda"]) for r in below + floor + certified] \
+                != [float(r["lambda"]) for r in quad]:
+            raise ValueError("cut-quad within-floor range is not contiguous "
+                             "below the certified threshold")
+        out["certQuadLambdaGlobalMin"] = format(float(certified[0]["lambda"]), "g")
+        out["certQuadFloorLambdaLo"] = format(float(floor[0]["lambda"]), "g")
+        out["certQuadFloorLambdaHi"] = format(float(floor[-1]["lambda"]), "g")
+
+    cut_tv = sorted((r for r in tv_rows if r["arm"] == "cut-tv"),
+                    key=lambda r: float(r["lambda"]))
+    if cut_tv:
+        fails = [r for r in cut_tv if r["adam_matches_cut"] == "False"]
+        if not fails or fails != cut_tv[:len(fails)]:
+            raise ValueError("adam-tv certificate failures are not a "
+                             "lambda-grid prefix")
+        out["certTvFailLambdaMax"] = format(float(fails[-1]["lambda"]), "g")
+
+    flagged = [r for r in m5_rows if r["material_improvement"] == "True"]
+    if flagged:
+        if len(flagged) != 1:
+            raise ValueError("expected exactly one flagged Langevin improvement")
+        delta_j = float(flagged[0]["delta_j_vs_method1"])
+        spread = float(flagged[0]["chain_energy_spread"])
+        if not abs(delta_j) < spread:
+            raise ValueError("flagged Langevin delta-J is not inside its own "
+                             "chain-energy spread; appendix claim invalid")
+        out["certLangevinDeltaJ"] = format(delta_j, ".4f")
+        out["certLangevinChainSpread"] = format(spread, ".3f")
+
+    return out
+
+
+# --------------------------------------------------- App E compute-cost macros
+# (decision 6, 2 Jul PM): training wall-times from the once-persisted sacct
+# record (outputs/runs/compute_record.json -- scheduler accounting ages out,
+# which is why the record is a committed artifact) and the sampler audit cost
+# from the pipeline's own timings.json.
+def _elapsed_to_hours(text):
+    h, m, s = (int(part) for part in str(text).split(":"))
+    return h + m / 60.0 + s / 3600.0
+
+
+def build_compute_macros(record, timings):
+    """`\\compute*` macros from compute_record.json + phase_4_real/timings.json.
+
+    `record`/`timings`: parsed JSON dicts (or None when the file is absent ->
+    placeholders). The audit total sums the timed stages, excluding the
+    `icm_s_per_sweep` entry, which is a per-sweep rate rather than a stage.
+    """
+
+    out = {name: PLACEHOLDER for name in (
+        "computeAeWallHours", "computeForecastWallHours",
+        "computeExtractionWallMinutes", "computeAuditWallSeconds")}
+    if record:
+        jobs = record["jobs"]
+        out["computeAeWallHours"] = format(
+            _elapsed_to_hours(jobs["ae_training"]["elapsed"]), ".1f")
+        out["computeForecastWallHours"] = format(
+            _elapsed_to_hours(jobs["forecast_training_v2"]["elapsed"]), ".1f")
+        out["computeExtractionWallMinutes"] = format(
+            _elapsed_to_hours(jobs["extraction"]["elapsed"]) * 60.0, ".1f")
+    if timings:
+        total = sum(v for k, v in timings.items() if k != "icm_s_per_sweep")
+        out["computeAuditWallSeconds"] = format(total, ".0f")
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -982,6 +1252,33 @@ def main():
     # from the committed toy fields (figure-faithful) so the quoted number cannot
     # drift from its non-smearing figure.
     macros = {**macros, **build_toy_smear_macros(args.runs_dir, TOY_DATA_DIR)}
+    # Round-1 review emissions (2 Jul worklist), appended after the verified set
+    # so the committed file grows strictly additively:
+    # DEC-1(c): the bimodal-stratum rule's fixed analysis constants.
+    macros = {**macros, **build_stratum_constant_macros()}
+    # PR-1 condition 1: the S5.5 enrichment-rewrite ratios (figure-faithful).
+    macros = {**macros, **build_enrichment_ratio_macros(
+        args.runs_dir / "phase_4_fc48_14ep_step8")}
+    # DEC-4: threshold-sensitivity gap CIs + deep-tail stratum fraction.
+    macros = {**macros, **build_threshold_sensitivity_macros(
+        args.runs_dir / "phase_4_fc48_14ep_step8")}
+    # PR-4: lambda* stability across the optimiser's random restarts.
+    macros = {**macros, **build_restart_stability_macro(
+        args.runs_dir / "phase_4_fc48_14ep_step8")}
+    # DEC-9: the spectrum's resolved-band ceiling l_res.
+    macros = {**macros, **build_spectrum_resolution_macro(args.runs_dir)}
+    # App D (decision 5, 2 Jul PM): toy optimality-certificate numbers, derived
+    # from the persisted Stage B-TV / Stage D certificate CSVs.
+    macros = {**macros, **build_certificate_macros(
+        _read_csv_numeric(args.runs_dir / "stage_b_tv_ablation" / "stage_b_tv_scores.csv"),
+        _read_csv_numeric(args.runs_dir / "stage_d_method5_langevin" / "stage_d_scores.csv"))}
+    # App E (decision 6, 2 Jul PM): compute costs from the once-persisted sacct
+    # record + the sampler pipeline's timings.json.
+    compute_record_path = args.runs_dir / "compute_record.json"
+    timings_path = args.ae_run_dir / "timings.json"
+    macros = {**macros, **build_compute_macros(
+        json.loads(compute_record_path.read_text()) if compute_record_path.exists() else None,
+        json.loads(timings_path.read_text()) if timings_path.exists() else None)}
     tables = {
         "pi_softening.tex": build_pi_softening_table(soft_rows),
         "lambda_calibration.tex": build_lambda_table(lambda_stars, soft_rows),

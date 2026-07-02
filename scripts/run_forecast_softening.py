@@ -232,20 +232,21 @@ def make_figure(rows, fig_path, ae_anchor=AE_ANCHOR_MAX_PI):
                  label=f"2nd-mode mass ({label})")
         ax2.plot(leads, [100 * r["one_hot_fraction"] for r in sub], "s-", color=c,
                  label=f"one-hot fraction ({label})")
-    # AE step-0 reconstruction anchor (left edge of the continuous curve).
-    ax1.scatter([0.0], [ae_anchor], marker="*", s=160, color="k", zorder=6,
+    # AE step-0 reconstruction anchor (left edge of the continuous curve). Pentagon
+    # marker, distinct from the black star that denotes a* in the Chapter 4 figures.
+    ax1.scatter([0.0], [ae_anchor], marker="p", s=170, color="k", zorder=6,
                 label=f"AE step-0 anchor ({ae_anchor:.3f})")
     ax1.set_xlabel("forecast lead time (h)")
     ax1.set_ylabel("mixture weight")
-    ax1.set_title("Weights soften monotonically with lead time")
+    ax1.set_title("Median max-$\\pi$ and second-mode mass vs lead time")
     ax1.legend(fontsize=7)
     ax1.grid(alpha=0.3)
     ax2.set_xlabel("forecast lead time (h)")
     ax2.set_ylabel("one-hot fraction (max-$\\pi$ > 0.9), %")
-    ax2.set_title("Near-deterministic cells vanish with lead and training")
+    ax2.set_title("One-hot fraction vs lead time")
     ax2.legend(fontsize=7)
     ax2.grid(alpha=0.3)
-    fig.suptitle("Forecast-regime softening: 6-epoch (v1) vs 14-epoch converged (v2)", fontsize=11)
+    fig.suptitle("Forecast-regime softening: 6-epoch vs 14-epoch", fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     Path(fig_path).parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(fig_path, dpi=150, bbox_inches="tight")

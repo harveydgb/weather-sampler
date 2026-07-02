@@ -77,7 +77,11 @@ def make_region(latlons, iid, era5):
     lons = _wrap_longitudes(latlons[:, 1])
     box = (lons >= LON_MIN) & (lons <= LON_MAX) & (lats >= LAT_MIN) & (lats <= LAT_MAX)
     lon_b, lat_b = lons[box], lats[box]
-    vmin, vmax = np.percentile(np.concatenate([iid[box], era5[box]]), [2, 98])
+    # Symmetric diverging norm: white sits at 0 on the standardised scale so the
+    # RdBu_r midpoint is meaningful (2/98 clip preserved, mirrored about zero).
+    p2, p98 = np.percentile(np.concatenate([iid[box], era5[box]]), [2, 98])
+    vspan = float(max(abs(p2), abs(p98)))
+    vmin, vmax = -vspan, vspan
     aspect = 1.0 / np.cos(np.deg2rad(0.5 * (LAT_MIN + LAT_MAX)))
 
     fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.4))
@@ -85,7 +89,7 @@ def make_region(latlons, iid, era5):
         axes, ((TITLE_NOISE, iid[box]), (TITLE_STRUCTURE, era5[box]))
     ):
         sc = ax.scatter(
-            lon_b, lat_b, c=field, s=7.0, cmap="RdBu_r", vmin=vmin, vmax=vmax,
+            lon_b, lat_b, c=field, s=14.0, cmap="RdBu_r", vmin=vmin, vmax=vmax,
             rasterized=True, zorder=2,
         )
         for seg_lon, seg_lat in _natural_earth_coastline_segments():

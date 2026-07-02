@@ -97,15 +97,26 @@ _FALLBACK_CYCLE = [
     ("olive", "^", "-"), ("pink", "d", "--"),
 ]
 _SPECTRUM_COLOUR = {
-    "iid_seed0": "C3",
-    "iid_seed1": "C3",
-    "iid_seed2": "C3",
+    # Independent draw in black -- the house-style iid colour used in the
+    # variogram/Pareto -- NOT red: red next to the Pareto figure's blue Joint MAP
+    # made the same hue mean two different things across the report (DEC-11.4).
+    "iid_seed0": "k",
+    "iid_seed1": "k",
+    "iid_seed2": "k",
     "mode_map": "C4",
     "smoothed_map_n5": "C8",
     "smoothed_map_n10": "C8",
     "smoothed_map_n20": "C8",
     "mixture_mean": "C1",
     "a_star": "C9",
+}
+# The mid-band trio (Per-cell MAP / Mixture mean / Mode-selection MRF) is visually
+# coincident on the spectrum; distinct dash patterns let a reader see all three
+# curves are present even where they overprint (the caption also states this).
+_SPECTRUM_LINESTYLE = {
+    "mode_map": "--",
+    "mixture_mean": "-.",
+    "m4_beta1": ":",
 }
 
 # Canonical DISPLAY names: ONE source of truth for every legend label AND the
@@ -186,7 +197,7 @@ def plot_variograms(
     return fig, ax
 
 
-def plot_spectra(ell, spectra, *, title, era5_key=ERA5_KEY):
+def plot_spectra(ell, spectra, *, title, era5_key=ERA5_KEY, figsize=(6.5, 3.8)):
     """Linear-x/log-y angular power spectrum C_l vs degree l for the headline fields.
 
     RUNG-3 BRACKET DIAGNOSTIC (not a skill metric, not an optimisation target):
@@ -199,10 +210,11 @@ def plot_spectra(ell, spectra, *, title, era5_key=ERA5_KEY):
     """
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(6.5, 3.8))
+    fig, ax = plt.subplots(figsize=figsize)
     for idx, (label, values) in enumerate(_ordered_items(spectra)):
         colour, marker, ls = field_style(label, idx)
         colour = _SPECTRUM_COLOUR.get(label, colour)
+        ls = _SPECTRUM_LINESTYLE.get(label, ls)
         marker = "o"
         if label == era5_key:
             ax.plot(ell, values, marker=marker, ls=ls, color=colour, lw=1.0,
@@ -360,7 +372,15 @@ def plot_mollweide_fields(
     lons_deg = _wrap_longitudes(latlons[:, 1])
     x_proj, y_proj = _robinson_project(lons_deg, latlons[:, 0])
     values_for_scale = np.concatenate([np.asarray(values).reshape(-1) for values in fields.values()])
-    vmin, vmax = np.percentile(values_for_scale, [2, 98])
+    # Symmetric diverging norm: white sits at 0 on the standardised scale, so the
+    # RdBu_r midpoint is meaningful rather than landing at an arbitrary value
+    # (DEC-11.5). The 2/98 clip is preserved, then mirrored about zero.
+    p2, p98 = np.percentile(values_for_scale, [2, 98])
+    vspan = float(max(abs(p2), abs(p98)))
+    vmin, vmax = -vspan, vspan
+    # Larger markers toward the poles, where the reduced-Gaussian rings thin out;
+    # fills the polar "corduroy" gaps without interpolating the field (DEC-11.5).
+    marker_sizes = 0.5 + 2.0 * (np.abs(latlons[:, 0]) / 90.0) ** 2
     field_items = list(fields.items())
     ncols = min(max(1, int(ncols)), len(field_items))
     nrows = int(np.ceil(len(field_items) / ncols))
@@ -387,7 +407,7 @@ def plot_mollweide_fields(
             x_proj,
             y_proj,
             c=np.asarray(values).reshape(-1),
-            s=0.5,
+            s=marker_sizes,
             cmap=cmap,
             vmin=vmin,
             vmax=vmax,
@@ -403,7 +423,8 @@ def plot_mollweide_fields(
         ax.axis("off")
     for ax in axes_grid.reshape(-1)[len(field_items):]:
         ax.set_visible(False)
-    fig.colorbar(sc, cax=cbar_ax, orientation="vertical", label="2t (normalised)")
+    fig.colorbar(sc, cax=cbar_ax, orientation="vertical",
+                 label="2-metre temperature (standardised)")
     fig.suptitle(suptitle, y=0.98, fontsize=13)
     fig.subplots_adjust(left=0.035, right=0.965, bottom=0.06, top=0.89)
     return fig, axes_grid
