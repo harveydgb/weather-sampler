@@ -41,7 +41,7 @@ SHARED_ROWS = [
                       "\n512-step linear cooldown"),
 ]
 
-REGIME_HEADER = ("", "Autoencoder (gmm_era5_32ep_v3)", "Forecast model")
+REGIME_HEADER = ("", "Autoencoder", "Forecast model")
 REGIME_ROWS = [
     ("Initialisation", "from scratch", "warm start from the\nautoencoder checkpoint"),
     ("Masking", "random, rate 0.6", "forecast (full current\nfield as source)"),
