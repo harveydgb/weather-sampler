@@ -4,13 +4,15 @@
 #   .venv/bin/python -m pytest -q
 #
 # numpy/scipy are the runtime dependencies; matplotlib drives the Phase-4
-# figure scripts; pytest runs the suite. All stochastic results seed
-# np.random.default_rng (PCG64), whose streams are stable across these
+# figure scripts; pyshp reads the bundled Natural Earth coastlines; pytest
+# runs the suite. All stochastic results seed np.random.default_rng (PCG64),
+# whose streams are stable across these
 # versions, so seeded numbers reproduce exactly. (networkx is intentionally
 # absent -- it is not imported anywhere in the tree.)
 numpy==2.4.6
 scipy==1.17.1
 matplotlib==3.10.9
+pyshp==3.1.4
 pytest==9.0.3
 # (ducc0 is an OPTIONAL accelerator for the spherical power spectrum -- see the
 # pyproject `spectrum` extra. The default engine is pure-numpy, so it is left out

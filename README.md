@@ -100,6 +100,9 @@ Real-data files (converted from the WeatherGenerator `.pt` artifact by
 - `outputs/data/phase_4_real_2t.npz` (+ `_meta.json`) — the canonical `gmm_era5_32ep_v3` 2t marginal
 - `outputs/data/phase_4_real_2t_iidsource.npz` (+ `_meta.json`) — the iid-source companion
 
+The upstream WeatherGenerator training and extraction steps are external to this repository;
+the reproduction manual is [`docs/reproducing_the_model.md`](docs/reproducing_the_model.md).
+
 Forecast-regime per-lead files (converted with
 `scripts/convert_real_gmm_pt_to_npz.py --format forecast`, one `.npz` + `_meta.json`
 per +6h..+48h lead step):

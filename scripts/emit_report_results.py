@@ -273,16 +273,17 @@ def build_faithfulness_table(faith_rows, soft_rows):
     faith = {(r["run"], int(r["step"])): r for r in faith_rows
              if r.get("kind", "single") == "single"}
     steps = _steps_union(faith_rows) or _steps_union(soft_rows)
-    # The all-zero do-no-harm Delta-CRPS column is dropped to one sentence in S5.6
-    # (the |Delta CRPS| <= \deltaCrpsMaxAbs null); only the two marginal-position
-    # diagnostics (Joint MAP) remain. Headers carry the "marg.-pos." qualifier so the
-    # table cannot be misread as ensemble calibration (non-claim #3).
+    # DEC-R28 (3 Jul): CRPS and the PIT-KS uniformity statistic are out of the main
+    # report; only the central marginal-position coverage remains (the Delta-CRPS
+    # column had already been dropped, 29 Jun table review). Headers keep the
+    # "marg.-pos." qualifier so the table cannot be misread as ensemble
+    # calibration (non-claim #3). PIT-KS stays in the CSV/macros, just untabulated.
     head = [
-        r"\begin{tabular}{lcccc}",
+        r"\begin{tabular}{lcc}",
         r"\toprule",
-        r" & \multicolumn{2}{c}{marg.-pos.\ 90\%} & \multicolumn{2}{c}{PIT KS} \\",
-        r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}",
-        r"Lead & 6\,ep & 14\,ep & 6\,ep & 14\,ep \\",
+        r" & \multicolumn{2}{c}{marg.-pos.\ 90\%} \\",
+        r"\cmidrule(lr){2-3}",
+        r"Lead & 6\,ep & 14\,ep \\",
         r"\midrule",
     ]
     body = []
@@ -291,15 +292,13 @@ def build_faithfulness_table(faith_rows, soft_rows):
         cells = [
             fmt_cov(f6["m1_star_cov90"]) if f6 else PLACEHOLDER,
             fmt_cov(f14["m1_star_cov90"]) if f14 else PLACEHOLDER,
-            fmt_cov(f6["m1_star_pit_ks"]) if f6 else PLACEHOLDER,
-            fmt_cov(f14["m1_star_pit_ks"]) if f14 else PLACEHOLDER,
         ]
         body.append(f"{_lead_label(step, soft_rows)} & " + " & ".join(cells) + r" \\")
     tail = [
         r"\bottomrule",
         r"\end{tabular}",
-        r"% Joint MAP marginal-position diagnostics only (report non-claim \#3); the "
-        r"do-no-harm $\Delta$CRPS null is reported in the \S5.6 text.",
+        r"% Joint MAP central marginal-position coverage only (report non-claim \#3); "
+        r"CRPS and PIT-KS were removed from the report (DEC-R28).",
     ]
     return "\n".join(head + body + tail) + "\n"
 

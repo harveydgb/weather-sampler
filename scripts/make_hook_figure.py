@@ -5,7 +5,7 @@ persisted +48 h artifacts as the main-text maps figure (no new sampling):
 
   left  — one field drawn *independently* from each location's emitted GMM
           (anchors.npz `iid_seed0`): spatially incoherent, salt-and-pepper.
-  right — a real 2-metre-temperature field over the same grid
+  right — an ERA5 reanalysis 2-metre-temperature field over the same grid
           (era5_reference.npz `era5`): spatially coherent.
 
 The contrast motivates the whole report: the model emits each location's
@@ -42,7 +42,7 @@ OUT_REGION = REPO_ROOT / "outputs" / "figures" / "fig_hook_noise_vs_structure.pn
 
 # Plain-language panel titles for the introduction (no project jargon).
 TITLE_NOISE = "Independent draw at each location"
-TITLE_STRUCTURE = "A real atmospheric field"
+TITLE_STRUCTURE = "ERA5 reanalysis 2 m temperature"
 
 # Regional close-up: North Atlantic / Europe / North Africa, where the
 # land-sea contrast and mid-latitude gradients give real structure, so the

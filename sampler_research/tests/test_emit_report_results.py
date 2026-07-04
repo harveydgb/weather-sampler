@@ -109,11 +109,13 @@ def test_tables_render_rows_and_dagger():
     assert r"\forecastLambdaStarConvergedLo" not in lam_tbl
     faith_tbl = m.build_faithfulness_table(FAITH, SOFT)
     # 29 Jun table review: the all-zero do-no-harm ΔCRPS column is dropped to the
-    # caption null; the table now carries only the two Joint MAP marginal-position
-    # diagnostics, and the misread-prone "M1 cov." header is renamed "marg.-pos.".
+    # caption null; the misread-prone "M1 cov." header is renamed "marg.-pos.".
+    # DEC-R28 (3 Jul): the PIT-KS columns are dropped too — CRPS and PIT-KS are out
+    # of the report; only the central marginal-position coverage is tabulated.
     assert r"marg.-pos." in faith_tbl and "M1" not in faith_tbl
     assert "0.910" in faith_tbl and "0.880" in faith_tbl   # cov90 (6ep, 14ep)
-    assert "0.050" in faith_tbl and "0.070" in faith_tbl   # PIT KS (6ep, 14ep)
+    assert "PIT KS" not in faith_tbl                        # no PIT-KS columns
+    assert "0.050" not in faith_tbl and "0.070" not in faith_tbl
     assert "-0.004" not in faith_tbl and "+0.002" not in faith_tbl  # no ΔCRPS column
 
 
