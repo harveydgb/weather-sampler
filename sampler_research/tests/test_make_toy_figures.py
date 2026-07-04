@@ -79,3 +79,68 @@ def test_both_figures_render(tmp_path):
     assert out2.name == "phase_2_tv_pareto_plane_homoscedastic.png"
     for out in (out1, out2):
         assert out.exists() and out.stat().st_size > 0
+
+
+@needs_toy
+def test_component_fields_figure_renders(tmp_path):
+    """Component-fields figure renders to a non-empty PNG under its expected
+    name. Needs only the toy `.npz` -- unlike the other two figures, no
+    persisted stage_* run is required (`load_component_fields` ignores
+    `runs_dir`)."""
+    m = _load()
+    art = m.load_component_fields()
+    out = m.fig_component_fields(art, tmp_path)
+    assert out.name == "phase_1_component_fields.png"
+    assert out.exists() and out.stat().st_size > 0
+
+
+def test_figures_registry_shares_one_loader_signature():
+    """Every FIGURES loader accepts (runs_dir, data_dir) so `main` can dispatch
+    without special-casing any entry -- this is what lets a figure that needs
+    no stage_* run (`components`) sit in the same registry as ones that do."""
+    m = _load()
+    import inspect
+
+    for loader, fig_fn in m.FIGURES.values():
+        params = list(inspect.signature(loader).parameters)
+        assert params[:2] == ["runs_dir", "data_dir"]
+        assert callable(fig_fn)
+
+
+@needs_toy
+@needs_stage_runs
+def test_stage_a_baselines_figure_renders(tmp_path):
+    """Stage A baselines figure renders to a non-empty PNG under its expected
+    name, with one panel per TOY_BASELINE_LABELS entry."""
+    m = _load()
+    art = m.load_artifacts()
+    out = m.fig_stage_a_baselines(art, tmp_path)
+    assert out.name == "phase_2_stage_a_baselines.png"
+    assert out.exists() and out.stat().st_size > 0
+
+
+TOY_BASELINES_TABLE = REPO_ROOT / "report" / "construction" / "tables" / "toy_baselines.tex"
+
+
+# The figure intentionally drops these two qualifiers from the table's
+# wording (crowds the larger panel titles otherwise; see TOY_BASELINE_LABELS'
+# comment in make_toy_figures.py). Everything else -- row order, the other
+# three labels, and any future table row -- must still match verbatim.
+_DROPPED_QUALIFIERS = {
+    "Independent draw (iid)": "Independent draw",
+    "Per-cell MAP (mode)": "Per-cell MAP",
+}
+
+
+@pytest.mark.skipif(not TOY_BASELINES_TABLE.exists(), reason="toy_baselines.tex absent")
+def test_stage_a_baselines_labels_match_table_4_1():
+    """TOY_BASELINE_LABELS (this figure's panel order + titles) must match
+    Table 4.1's rendered rows, up to the two known dropped qualifiers -- the
+    whole point of the figure is to be a drop-in replacement for that table,
+    so anything else must never drift."""
+    m = _load()
+    lines = TOY_BASELINES_TABLE.read_text().splitlines()
+    body = lines[lines.index(r"\midrule") + 1:lines.index(r"\bottomrule")]
+    table_rows = [line.split("&", 1)[0].strip() for line in body]
+    expected = [_DROPPED_QUALIFIERS.get(row, row) for row in table_rows]
+    assert expected == [label for _key, label in m.TOY_BASELINE_LABELS]

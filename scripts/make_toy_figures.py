@@ -1,4 +1,4 @@
-"""Phase 1/2 TOY report figures from the persisted stage_* artifacts.
+r"""Phase 1/2 TOY report figures from the persisted stage_* artifacts.
 
 Generates the synthetic-testbed figures the report includes, replacing the
 old notebook exports so the report no longer depends on notebook execution
@@ -25,6 +25,26 @@ old notebook exports so the report no longer depends on notebook execution
       including the off-scale Independent draw the main-text plane omits.
       A display-name re-render of the retired notebook export of the same
       name, read from the same persisted stage_* artifacts.
+  phase_1_component_fields.png
+      The four slowly-varying quadratic component-mean sheets
+      (`research_notes/phase_1.md` "Component-mean surfaces"), read straight
+      from the toy `.npz` -- no stage run required. Report re-render of
+      notebook 00's debug-only `plot_component_fields` panel, with report
+      framing: panels titled "Surface k" / "centre = (a, b)", no
+      suptitle, and a colorbar sized to the panel row's own height.
+  phase_2_stage_a_baselines.png
+      The five Stage A reference fields -- Independent draw, Per-cell MAP,
+      Mixture mean, Smoothed MAP, Smoothest faithful ($a^\star$) -- each
+      panel titled with its (former) Table 4.1 display name and its NLL/N +
+      R~ scores to 3 d.p. (matching the `toy*` macros). This figure now
+      REPLACES Table 4.1 in the report (`fig:toy-baselines`, was
+      `tab:toy-baselines`) rather than duplicating it, so it carries no
+      suptitle -- the caption in `report/thesis.tex` names it. Report
+      re-render of notebook 02's "Stage A anchors" field-map row, extended
+      from four panels to the former table's full five rows (adds Mixture
+      mean). Panel order/names mirror TOY_BASELINES in emit_report_results.py,
+      the table generator that still emits the underlying macros, so the two
+      can never drift apart.
 
 House style -- colours, markers and display names -- is shared with the real
 Phase-4 figures via `sampler_research.plotting`, so a reader can map toy -> real.
@@ -41,6 +61,7 @@ real smear-tail CIs.
 
 import argparse
 import csv
+import json
 from pathlib import Path
 
 import matplotlib
@@ -141,6 +162,27 @@ def load_artifacts(runs_dir=RUNS_DIR, data_dir=DATA_DIR, dataset=DATASET):
         # Stage C's extracted modes are the shared reference for every field's
         # drift-off-mode score (cross-method, exactly as in the notebooks).
         "mode_values": C["mode_values"], "valid_mask": C["valid_mask"],
+    }
+
+
+def load_component_fields(runs_dir=RUNS_DIR, data_dir=DATA_DIR, dataset=DATASET):
+    """Load `component_fields` + the peak-offset/extent constants from the toy `.npz`.
+
+    Pure read of the committed toy artifact -- no toy construction or sweep is
+    re-run. Unlike `load_artifacts`, this does not need any persisted stage_*
+    run (`runs_dir` is accepted but unused, only so every loader shares one
+    call signature -- see `main`).
+    """
+
+    del runs_dir  # unused; kept for a uniform loader signature with load_artifacts
+    with np.load(Path(data_dir) / f"{dataset}.npz", allow_pickle=False) as d:
+        component_fields = np.asarray(d["component_fields"])
+        constants = json.loads(str(d["constants"]))
+    extent = [constants["x_min"], constants["x_max"], constants["y_min"], constants["y_max"]]
+    return {
+        "component_fields": component_fields,
+        "peak_offsets": constants["peak_offsets"],
+        "extent": extent,
     }
 
 
@@ -446,8 +488,151 @@ def fig_full_plane(art, fig_dir=FIG_DIR):
     return out
 
 
-FIGURES = {"nonsmearing": fig_nonsmearing, "pareto": fig_pareto_plane,
-           "fullplane": fig_full_plane}
+def _colorbar_matched_to_row(fig, axes, im, *, gap=0.015, width=0.02):
+    """Attach a colorbar for `im` sized to the drawn height of a row of `axes`.
+
+    `fig.colorbar(im, ax=axes, ...)` sizes off the *bounding box* of every axes
+    passed to it, which overshoots the actual image panels once multi-line
+    titles/labels are added around them. Reading each axis's own drawn extent
+    back (after a canvas draw, so positions are final) and placing a dedicated
+    colorbar axis there instead makes the colorbar match the panels exactly.
+    Shared by every multi-panel toy figure in this module.
+    """
+
+    fig.canvas.draw()
+    row_axes = list(np.ravel(axes))
+    y0 = min(ax.get_position().y0 for ax in row_axes)
+    y1 = max(ax.get_position().y1 for ax in row_axes)
+    x1 = max(ax.get_position().x1 for ax in row_axes)
+    cbar_ax = fig.add_axes([x1 + gap, y0, width, y1 - y0])
+    return fig.colorbar(im, cax=cbar_ax)
+
+
+def fig_component_fields(art, fig_dir=FIG_DIR):
+    """Four component-mean sheets -> phase_1_component_fields.png.
+
+    Report re-render of notebook 00's debug-only `plotting.plot_component_fields`
+    panel (`component_fields` is shared bit-for-bit between the homoscedastic
+    and heteroscedastic toys -- see `phase_1.md` "Reproducibility" -- so reading
+    the homoscedastic `.npz` covers both). Differs from the notebook version in
+    report framing only: panels read "Surface k" / "centre = (a, b)" (was
+    "component k" / "(a, b) = (...)"), there is no figure suptitle (the caption
+    in `report/thesis.tex` carries that role), and the shared colorbar is sized
+    to the panel row's own drawn height rather than the full multi-axes
+    bounding box (which overshoots the panels once two-line titles are added).
+    """
+
+    component_fields = art["component_fields"]
+    peak_offsets = art["peak_offsets"]
+    extent = art["extent"]
+    k = component_fields.shape[-1]
+    vmin, vmax = component_fields.min(), component_fields.max()
+
+    fig, axes = plt.subplots(1, k, figsize=(3 * k, 3.4))
+    im = None
+    for idx, ax in enumerate(np.ravel(axes)):
+        im = ax.imshow(
+            component_fields[:, :, idx],
+            origin="lower",
+            extent=extent,
+            vmin=vmin,
+            vmax=vmax,
+            cmap="viridis",
+        )
+        a_k, b_k = peak_offsets[idx]
+        ax.plot(-a_k, -b_k, "r+", markersize=12, markeredgewidth=2)
+        ax.set_title(f"Surface {idx + 1}", fontsize=18)
+        ax.set_xlabel(f"centre = ({a_k:g}, {b_k:g})", fontsize=14)
+        ax.set_xticks([])
+        ax.set_yticks([])
+    fig.tight_layout()
+    _colorbar_matched_to_row(fig, axes, im)
+
+    out = Path(fig_dir) / "phase_1_component_fields.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"wrote {out.name}")
+    return out
+
+
+# Table 4.1 (`tab:toy-baselines`) row order, mirrored from TOY_BASELINES in
+# emit_report_results.py -- the table's own generator -- so this figure's
+# panel order can never drift from the table it is intended to replace.
+# Display names match the table verbatim EXCEPT `iid`/`mode_map` drop the
+# "(iid)"/"(mode)" qualifier the table carries -- the figure needs no
+# parenthetical alias since the key is implicit in the panel, and dropping it
+# keeps the larger panel titles from crowding. Kept as a local copy rather
+# than an import: `scripts/` has no package `__init__.py` and its modules are
+# run standalone (the existing cross-script consistencies, e.g.
+# run_forecast_softening.py's "mirrors emit_report_results.py" comment,
+# follow the same convention).
+TOY_BASELINE_LABELS = [
+    ("iid", "Independent draw"),
+    ("mode_map", "Per-cell MAP"),
+    ("mixture_mean", "Mixture mean"),
+    ("smoothed_map", "Smoothed MAP"),
+    ("a_star", r"Smoothest faithful ($a^\star$)"),
+]
+
+
+def fig_stage_a_baselines(art, fig_dir=FIG_DIR):
+    """Five Stage A reference fields -> phase_2_stage_a_baselines.png.
+
+    Report re-render of notebook 02's "Stage A anchors" field-map row
+    (`research_notes/phase_2.md` sec 1 / thesis.tex sec:baselines), extended
+    from four panels to all five former-Table-4.1 rows (adds Mixture mean).
+    This figure now REPLACES that table in the report (`fig:toy-baselines`),
+    so it carries the same NLL/N + R~ numbers plus the fields themselves.
+    Panel order and titles are TOY_BASELINE_LABELS -- the former table's own
+    row order, with its wording verbatim except the "(iid)"/"(mode)"
+    qualifiers are dropped (see the constant's comment); NLL/N and R~ are
+    read from the same `stage_a_scores.csv` row the table was built from --
+    no sweep is
+    re-run.
+    """
+
+    A, scores_a = art["A"], art["scores_a"]
+    fields = {key: A[key] for key, _label in TOY_BASELINE_LABELS}
+    stacked = np.concatenate([f.reshape(-1) for f in fields.values()])
+    vmin, vmax = np.percentile(stacked, [1, 99])
+
+    n = len(TOY_BASELINE_LABELS)
+    fig, axes = plt.subplots(1, n, figsize=(3.5 * n, 4.0))
+    im = None
+    for ax, (key, label) in zip(axes, TOY_BASELINE_LABELS):
+        im = ax.imshow(fields[key], origin="lower", cmap="viridis", vmin=vmin, vmax=vmax)
+        s = scores_a[key]
+        ax.set_title(label, fontsize=20)
+        ax.set_xlabel(
+            f"NLL/$N$={s['nll_over_n']:.3f}   $\\tilde{{R}}$={s['r_tilde']:.3f}",
+            fontsize=16, fontweight="bold",
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+    fig.tight_layout()
+    _colorbar_matched_to_row(fig, axes, im)
+
+    out = Path(fig_dir) / "phase_2_stage_a_baselines.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"wrote {out.name}")
+    return out
+
+
+# name -> (loader, fig_fn). Every loader shares the (runs_dir, data_dir) call
+# signature (`load_component_fields` ignores `runs_dir`) so `main` can call
+# whichever loader a figure needs without special-casing it, and so a figure
+# added later that doesn't need the stage_* runs (e.g. a second notebook
+# diagram) only has to add a new loader here, not touch the dispatch loop.
+FIGURES = {
+    "nonsmearing": (load_artifacts, fig_nonsmearing),
+    "pareto": (load_artifacts, fig_pareto_plane),
+    "fullplane": (load_artifacts, fig_full_plane),
+    "components": (load_component_fields, fig_component_fields),
+    "baselines": (load_artifacts, fig_stage_a_baselines),
+}
 
 
 def main():
@@ -457,12 +642,16 @@ def main():
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument("--fig-dir", type=Path, default=FIG_DIR)
     parser.add_argument("--only", nargs="+", choices=sorted(FIGURES),
-                        help="regenerate only these figures (default: both)")
+                        help="regenerate only these figures (default: all)")
     args = parser.parse_args()
 
-    art = load_artifacts(args.runs_dir, args.data_dir)
-    for name in (args.only or sorted(FIGURES)):
-        FIGURES[name](art, args.fig_dir)
+    names = args.only or sorted(FIGURES)
+    cache = {}
+    for name in names:
+        loader, fig_fn = FIGURES[name]
+        if loader not in cache:
+            cache[loader] = loader(args.runs_dir, args.data_dir)
+        fig_fn(cache[loader], args.fig_dir)
 
 
 if __name__ == "__main__":
