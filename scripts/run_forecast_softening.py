@@ -207,8 +207,16 @@ def make_figure(rows, fig_path, ae_anchor=AE_ANCHOR_MAX_PI):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.5, 4.6))
+    title_fs = 16
+    panel_title_fs = 12.5
+    label_fs = 12
+    tick_fs = 10
+    legend_fs = 9
+    marker_size = 8
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.5, 4.8))
     colours = {"6ep": "tab:blue", "14ep": "tab:red"}
+    display_run = {"6ep": "6-Epoch", "14ep": "14-Epoch"}
     # Headline curves use the single-init rows only (6ep, and the canonical
     # 14ep init A); the across-init range is shaded as a band where available.
     singles = [r for r in rows if r.get("kind", "single") == "single"]
@@ -223,30 +231,34 @@ def make_figure(rows, fig_path, ae_anchor=AE_ANCHOR_MAX_PI):
             hi = [means[int(r["step"])]["median_max_pi_hi"] for r in sub if int(r["step"]) in means]
             if len(lo) == len(leads_b):
                 ax1.fill_between(leads_b, lo, hi, color="tab:red", alpha=0.15,
-                                 label="median max-$\\pi$ across-init range")
+                                 label="Median max-$\\pi$ Across-Init Range")
         leads = [r["lead_hours"] for r in sub]
         c = colours[label]
+        run_label = display_run[label]
         ax1.plot(leads, [r["median_max_pi"] for r in sub], "o-", color=c,
-                 label=f"median max-$\\pi$ ({label})")
-        ax1.plot(leads, [r["median_second_mode"] for r in sub], "^--", color=c, alpha=0.7,
-                 label=f"2nd-mode mass ({label})")
+                 markersize=marker_size, label=f"Median max-$\\pi$ ({run_label})")
+        ax1.plot(leads, [r["median_second_mode"] for r in sub], "^--", color=c,
+                 alpha=0.7, markersize=marker_size,
+                 label=f"Second-Mode Mass ({run_label})")
         ax2.plot(leads, [100 * r["one_hot_fraction"] for r in sub], "s-", color=c,
-                 label=f"one-hot fraction ({label})")
+                 markersize=marker_size, label=f"One-Hot Fraction ({run_label})")
     # AE step-0 reconstruction anchor (left edge of the continuous curve). Pentagon
     # marker, distinct from the black star that denotes a* in the Chapter 4 figures.
-    ax1.scatter([0.0], [ae_anchor], marker="p", s=170, color="k", zorder=6,
-                label=f"AE step-0 anchor ({ae_anchor:.3f})")
-    ax1.set_xlabel("forecast lead time (h)")
-    ax1.set_ylabel("mixture weight")
-    ax1.set_title("Median max-$\\pi$ and second-mode mass vs lead time")
-    ax1.legend(fontsize=7)
+    ax1.scatter([0.0], [ae_anchor], marker="p", s=230, color="k", zorder=6,
+                label=f"AE Step-0 Anchor ({ae_anchor:.3f})")
+    ax1.set_xlabel("Lead Time (h)", fontsize=label_fs)
+    ax1.set_ylabel("Mixture Weight", fontsize=label_fs)
+    ax1.set_title("Mixture Weights by Lead", fontsize=panel_title_fs)
+    ax1.tick_params(labelsize=tick_fs)
+    ax1.legend(fontsize=legend_fs)
     ax1.grid(alpha=0.3)
-    ax2.set_xlabel("forecast lead time (h)")
-    ax2.set_ylabel("one-hot fraction (max-$\\pi$ > 0.9), %")
-    ax2.set_title("One-hot fraction vs lead time")
-    ax2.legend(fontsize=7)
+    ax2.set_xlabel("Lead Time (h)", fontsize=label_fs)
+    ax2.set_ylabel("Cells with max-$\\pi$ > 0.9 (%)", fontsize=label_fs)
+    ax2.set_title("Near-One-Hot Cells", fontsize=panel_title_fs)
+    ax2.tick_params(labelsize=tick_fs)
+    ax2.legend(fontsize=legend_fs)
     ax2.grid(alpha=0.3)
-    fig.suptitle("Forecast-regime softening: 6-epoch vs 14-epoch", fontsize=11)
+    fig.suptitle("Forecast Softening: 6-Epoch vs 14-Epoch", fontsize=title_fs)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     Path(fig_path).parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(fig_path, dpi=150, bbox_inches="tight")

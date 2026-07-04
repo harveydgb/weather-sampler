@@ -111,10 +111,16 @@ ANCHOR_STYLE_KEY = {
 # the real figures. Full-method sweep markers are circles throughout.
 M1_COLOUR = field_style("m1_star")[0]
 M4_COLOUR = field_style("m4_beta1")[0]
-SWEEP_MARKER_SIZE = 6.0
+SWEEP_MARKER_SIZE = 9.0
+TOY_LEGEND_FONTSIZE = 9
+ANCHOR_MARKER_SIZE = 90
+A_STAR_MARKER_SIZE = 130
+ANCHOR_ERRORBAR_MARKER_SIZE = 9
+A_STAR_ERRORBAR_MARKER_SIZE = 12
 # Toy-figure arrowhead size, passed to _segment_arrows so only these two figures
 # grow; the shared default (SWEEP_ARROW_SIZE=50) still drives the Ch5 phase-4 figures.
 TOY_ARROW_SIZE = 70
+TOY_ARROW_LINEWIDTH = 1.35
 
 # Sweep-direction arrows (_segment_arrows) and first/best/last parameter labels
 # (_sweep_param_labels, _knee_index) now live in sampler_research.plotting so the
@@ -218,12 +224,17 @@ def _anchor(ax, art, key, y, *, ci=None, annotate_xy=(5, 4), annotate_ha="left")
     style_key = ANCHOR_STYLE_KEY[key]
     colour, marker, _ = field_style(style_key)
     x = float(art["scores_a"][key]["r_tilde"])
+    marker_size = A_STAR_MARKER_SIZE if key == "a_star" else ANCHOR_MARKER_SIZE
+    errorbar_marker_size = (
+        A_STAR_ERRORBAR_MARKER_SIZE if key == "a_star" else ANCHOR_ERRORBAR_MARKER_SIZE
+    )
     if ci is None:
-        ax.scatter(x, y, marker=marker, s=90, color=colour,
+        ax.scatter(x, y, marker=marker, s=marker_size, color=colour,
                    edgecolor="k", linewidth=0.6, zorder=5)
     else:
         ax.errorbar(x, y, yerr=[[y - ci["lo"]], [ci["hi"] - y]],
-                    fmt=marker, ms=9, color=colour, ecolor=colour, capsize=3,
+                    fmt=marker, ms=errorbar_marker_size, color=colour,
+                    ecolor=colour, capsize=3,
                     markeredgecolor="k", markeredgewidth=0.6, zorder=5)
     ax.annotate(
         display_name(style_key), (x, y), fontsize=7,
@@ -268,17 +279,19 @@ def fig_nonsmearing(art, fig_dir=FIG_DIR):
         _anchor(ax2, art, key, d["frac_over"][0], ci=smear_tail_ci(d["per_cell"]),
                 **anchor_labels_right[key])
     ax2.set_xscale("linear")
-    ax2.set_xlabel("Normalised roughness ($\\tilde{R}$)")
-    ax2.set_ylabel("fraction of cells $>0.5\\sigma$ off mode")
+    ax2.set_xlabel("Scale-free roughness ($\\tilde{R}$)")
+    ax2.set_ylabel("Fraction of cells $>0.5\\sigma$ off mode")
     ax2.set_title("Smear tail past $0.5\\sigma$ (95% within-field CI)")
     ax2.grid(True, alpha=0.3)
-    ax2.legend(fontsize=7, loc="upper center")
+    ax2.legend(fontsize=TOY_LEGEND_FONTSIZE, loc="upper center")
 
     fig.tight_layout()
     _segment_arrows(ax2, B["r_tilde"], [d["frac_over"][0] for d in b_delta],
-                    M1_COLOUR, n_arrows=2, outline=True, arrow_size=TOY_ARROW_SIZE)
+                    M1_COLOUR, n_arrows=2, outline=True, arrow_size=TOY_ARROW_SIZE,
+                    arrow_linewidth=TOY_ARROW_LINEWIDTH)
     _segment_arrows(ax2, C["r_tilde"], [d["frac_over"][0] for d in c_delta],
-                    M4_COLOUR, n_arrows=2, outline=True, arrow_size=TOY_ARROW_SIZE)
+                    M4_COLOUR, n_arrows=2, outline=True, arrow_size=TOY_ARROW_SIZE,
+                    arrow_linewidth=TOY_ARROW_LINEWIDTH)
 
     # Parameter-value labels on the first / best (knee) / last sweep circles.
     # The best index is found once from each method's faithfulness-coherence
@@ -289,16 +302,16 @@ def fig_nonsmearing(art, fig_dir=FIG_DIR):
         ax2, B["r_tilde"], [d["frac_over"][0] for d in b_delta], B["lambdas"],
         b_best, "\\lambda", M1_COLOUR, placements={
             "first": dict(xytext=(6, -2), ha="left", va="center"),
-            "best": dict(xytext=(-2, -4), ha="right", va="center"),
+            "best": dict(xytext=(-7, -4), ha="right", va="center"),
             "last": dict(xytext=(-7, -5), ha="right", va="bottom"),
         },
     )
     _sweep_param_labels(
         ax2, C["r_tilde"], [d["frac_over"][0] for d in c_delta], C["betas"],
         c_best, "\\beta", M4_COLOUR, placements={
-            "first": dict(xytext=(3, 1), ha="left", va="bottom"),
-            "best": dict(xytext=(-17, -5), ha="center", va="center"),
-            "last": dict(xytext=(3, -5), ha="left", va="center"),
+            "first": dict(xytext=(3, 7), ha="left", va="bottom"),
+            "best": dict(xytext=(-22, -10), ha="center", va="center"),
+            "last": dict(xytext=(7, -7), ha="left", va="center"),
         },
     )
     out = Path(fig_dir) / "phase_2_stage_bc_nonsmearing_homoscedastic.png"
@@ -360,23 +373,26 @@ def fig_pareto_plane(art, fig_dir=FIG_DIR):
         )
 
     ax.set_xscale("linear")
-    ax.set_xlabel("Normalised roughness ($\\tilde{R} = S_{\\mathrm{edge}}/\\mathrm{Var}(V)$)")
+    ax.set_xlabel("Scale-free roughness ($\\tilde{R} = S_{\\mathrm{edge}}/\\mathrm{Var}(V)$)")
     ax.set_ylabel("NLL/$N$ (nats)")
     # Title names the plane and the reading direction only; the interpretive
     # findings (TV collapse, the quadratic reaching R~ ~= 0.25) live in the
     # report caption (fig:toy-tv-pareto in report/thesis.tex).
     ax.set_title("Faithfulness–coherence plane (lower-left is better)")
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=8)
+    ax.legend(fontsize=TOY_LEGEND_FONTSIZE)
 
     # Sweep-direction arrows (outline chevrons) on all three curves, matching
     # the non-smearing figure.
     _segment_arrows(ax, B["r_tilde"], B["nll_over_n"], M1_COLOUR,
-                    n_arrows=2, outline=True, arrow_size=TOY_ARROW_SIZE)
+                    n_arrows=2, outline=True, arrow_size=TOY_ARROW_SIZE,
+                    arrow_linewidth=TOY_ARROW_LINEWIDTH)
     _segment_arrows(ax, C["r_tilde"], C["nll_over_n"], M4_COLOUR,
-                    n_arrows=2, outline=True, arrow_size=TOY_ARROW_SIZE)
+                    arrow_segments=[0, 2], outline=True, arrow_size=TOY_ARROW_SIZE,
+                    arrow_linewidth=TOY_ARROW_LINEWIDTH)
     _segment_arrows(ax, cut_r, cut_nll, cut_colour, n_arrows=2, outline=True,
-                    arrow_size=TOY_ARROW_SIZE)
+                    arrow_segments=[2, 4], arrow_size=TOY_ARROW_SIZE,
+                    arrow_linewidth=TOY_ARROW_LINEWIDTH)
 
     # First / best (knee) / last parameter-value labels on the two method
     # sweeps. Here best is the literal lower-left knee of this plane.
@@ -394,7 +410,7 @@ def fig_pareto_plane(art, fig_dir=FIG_DIR):
         ax, C["r_tilde"], C["nll_over_n"], C["betas"], c_best,
         "\\beta", M4_COLOUR, placements={
             # beta=0 sits on TV's lambda_TV=0; stack them (beta above, TV below).
-            "first": dict(xytext=(8, 5), ha="left", va="bottom"),
+            "first": dict(xytext=(0, 10), ha="left", va="bottom"),
             "best": dict(xytext=(0, -7), ha="center", va="top"),
             "last": dict(xytext=(5, 8), ha="left", va="bottom"),
         },
@@ -405,8 +421,8 @@ def fig_pareto_plane(art, fig_dir=FIG_DIR):
         ax, cut_r, cut_nll, cut_lambdas, cut_best,
         "\\lambda_{\\mathrm{TV}}", cut_colour, placements={
             "first": dict(xytext=(6, -2), ha="left", va="top"),
-            "best": dict(xytext=(0, -10), ha="center", va="center"),
-            "last": dict(xytext=(3, 0), ha="left", va="bottom"),
+            "best": dict(xytext=(-7, -15), ha="center", va="center"),
+            "last": dict(xytext=(6, 3), ha="left", va="bottom"),
         },
     )
     out = Path(fig_dir) / "phase_2_tv_pareto_plane_homoscedastic.png"

@@ -271,7 +271,14 @@ def make_figure(rows, payloads, label, fig_path, cov90_spread=None):
     steps_sorted = sorted(by_step)
     headline = [steps_sorted[-1]] + ([steps_sorted[0]] if len(steps_sorted) > 1 else [])
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.5, 4.6))
+    title_fs = 16
+    panel_title_fs = 12.5
+    label_fs = 12
+    tick_fs = 10
+    legend_fs = 9
+    marker_size = 7.5
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.5, 4.8))
     styles = {headline[0]: ("tab:red", "-")}
     if len(headline) > 1:
         styles[headline[1]] = ("tab:blue", "--")
@@ -283,9 +290,12 @@ def make_figure(rows, payloads, label, fig_path, cov90_spread=None):
         c, ls = styles[step]
         lead = by_step[step]["lead_hours"]
         x = np.where(lams > 0, lams, lams[lams > 0].min() / 3 if np.any(lams > 0) else 0.1)
-        ax1.plot(x, pay["sweep_cov90"], "o" + ls, color=c, label=f"central-90% (+{lead:g}h)")
-        ax1.plot(x, pay["sweep_cov50"], "s" + ls, color=c, alpha=0.6, label=f"central-50% (+{lead:g}h)")
-        ax2.plot(x, pay["sweep_nll_over_n"], "o" + ls, color=c, label=f"NLL/N (+{lead:g}h)")
+        ax1.plot(x, pay["sweep_cov90"], "o" + ls, color=c, markersize=marker_size,
+                 label=f"Central 90% (+{lead:g} h)")
+        ax1.plot(x, pay["sweep_cov50"], "s" + ls, color=c, alpha=0.6,
+                 markersize=marker_size, label=f"Central 50% (+{lead:g} h)")
+        ax2.plot(x, pay["sweep_nll_over_n"], "o" + ls, color=c,
+                 markersize=marker_size, label=f"NLL/N (+{lead:g} h)")
         ls_star = by_step[step]["lambda_star"]
         if ls_star:
             ax1.axvline(ls_star, color=c, lw=0.8, ls=":")
@@ -300,23 +310,27 @@ def make_figure(rows, payloads, label, fig_path, cov90_spread=None):
                     [ls_star], [mean], yerr=[[mean - lo], [hi - mean]],
                     fmt="o", color=c, ms=7, mec="k", mew=0.7, capsize=4,
                     elinewidth=1.4, zorder=7,
-                    label="across-init range (12 inits)" if step == headline[0] else None,
+                    label="Across-Init Range (12 Inits)" if step == headline[0] else None,
                 )
-    ax1.axhline(0.9, color="grey", lw=0.8, ls=":", label="iid do-no-harm (0.90)")
+    ax1.axhline(0.9, color="grey", lw=0.8, ls=":", label="90% Reference")
     ax1.axhline(0.5, color="grey", lw=0.8, ls=":")
     ax1.set_xscale("log")
-    ax1.set_xlabel("$\\lambda$ (log axis; dotted = $\\lambda^\\star$)")
-    ax1.set_ylabel("Joint MAP marginal-position coverage")
-    ax1.set_title("Marginal-position coverage vs regularisation strength")
-    ax1.legend(fontsize=7)
+    ax1.set_ylim(0.6, 1.03)
+    ax1.set_xlabel("$\\lambda$ (log scale)", fontsize=label_fs)
+    ax1.set_ylabel("Marginal-Position Coverage", fontsize=label_fs)
+    ax1.set_title("Coverage vs $\\lambda$", fontsize=panel_title_fs)
+    ax1.tick_params(labelsize=tick_fs)
+    ax1.legend(fontsize=legend_fs)
     ax1.grid(alpha=0.3)
     ax2.set_xscale("log")
-    ax2.set_xlabel("$\\lambda$ (log axis)")
-    ax2.set_ylabel("NLL/N under the emitted GMM (nats)")
-    ax2.set_title("Likelihood cost of coherence along the sweep")
-    ax2.legend(fontsize=7)
+    ax2.set_xlabel("$\\lambda$ (log scale)", fontsize=label_fs)
+    ax2.set_ylabel("NLL/N (nats)", fontsize=label_fs)
+    ax2.set_title("Likelihood Cost vs $\\lambda$", fontsize=panel_title_fs)
+    ax2.tick_params(labelsize=tick_fs)
+    ax2.legend(fontsize=legend_fs)
     ax2.grid(alpha=0.3)
-    fig.suptitle(f"Forecast regime ({label}): marginal faithfulness and do-no-harm", fontsize=11)
+    display_label = label.replace("ep", "-Epoch").replace("6-Epoch", "6-Epoch")
+    fig.suptitle(f"Forecast Marginal Faithfulness ({display_label})", fontsize=title_fs)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     Path(fig_path).parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(fig_path, dpi=150, bbox_inches="tight")

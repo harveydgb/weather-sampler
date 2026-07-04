@@ -1,0 +1,115 @@
+\documentclass[10pt,letterpaper,twocolumn]{article}
+
+\usepackage[letterpaper,top=0.55in,bottom=0.6in,left=0.62in,right=0.62in,columnsep=0.34in]{geometry}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{mathptmx}
+\usepackage{microtype}
+\usepackage{xcolor}
+
+\graphicspath{{../outputs/figures/}}
+
+\input{../report/construction/macros}
+\input{../report/construction/macros-results}
+
+% Lightweight visible marker for the draft template. Keep this local so the
+% summary can compile before the final text is written.
+\providecommand{\todo}[1]{\textit{\textcolor{black!65}{[TODO: #1]}}}
+
+\newcommand{\summarytitlemain}{Sampling Coherent Weather Fields}
+\newcommand{\summarytitlesub}{From Probabilistic Foundation Models}
+\newcommand{\summaryauthor}{Harvey Bermingham}
+\newcommand{\summaryprogramme}{MPhil Data Intensive Science}
+\newcommand{\summaryinstitution}{University of Cambridge}
+\newcommand{\summarywordcount}{\todo{insert final word count}}
+\newcommand{\summarylimit}{1,000 words}
+
+\newif\ifshowwordcount
+% The reference summary does not show a word-count line. REQUIREMENTS.md makes a
+% front-cover word count mandatory, while the writing checklist applies that to
+% both report and summary; keep this false unless Sophie / the handbook confirms
+% the executive summary needs it too.
+\showwordcountfalse
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+\raggedbottom
+\pagenumbering{arabic}
+
+\makeatletter
+\renewcommand\section{\@startsection {section}{1}{\z@}%
+  {1.25ex plus .2ex minus .1ex}%
+  {0.45ex plus .1ex}%
+  {\normalfont\normalsize\bfseries}}
+\makeatother
+
+\begin{document}
+
+\twocolumn[
+\begin{@twocolumnfalse}
+\begin{center}
+{\fontsize{13.2}{14.6}\selectfont\bfseries\scshape\MakeUppercase{\summarytitlemain}\par}
+\vspace{0.02em}
+{\fontsize{10.4}{12}\selectfont\scshape\MakeUppercase{\summarytitlesub}\par}
+\vspace{0.32em}
+{\fontsize{7.9}{9.4}\selectfont\scshape
+\MakeUppercase{\summaryauthor}\quad\(\vert\)\quad
+\MakeUppercase{\summaryprogramme}\quad\(\vert\)\quad
+\MakeUppercase{\summaryinstitution}\par}
+\ifshowwordcount
+\vspace{0.25em}
+{\fontsize{8.5}{10}\selectfont Word count: \summarywordcount \quad Limit: \summarylimit\par}
+\fi
+\end{center}
+\vspace{0.35em}
+\end{@twocolumnfalse}
+]
+
+% This is a template, not approved prose. Flesh it only after the report is
+% final enough to derive from, following research_notes/writing/exec-summary.md.
+% Requirements:
+% - separate document, <= 1,000 words;
+% - broader audience: senior managers / grant reviewers;
+% - why it matters, impact, next steps;
+% - numbers via macros only;
+% - no predictive-skill or ensemble-calibration over-claim.
+
+\section*{Motivation \& Scientific Justification}
+
+\todo{Write one plain paragraph on why coherent probabilistic weather fields matter.
+Use the decarbonisation / preparedness framing from the report, but keep the
+technical density lower than the dissertation introduction.}
+
+\section*{Methodology}
+
+\todo{Describe the joint sampler in non-specialist terms: it assembles independent
+per-location Gaussian-mixture outputs into one coherent field, true to each
+location's emitted distribution, with smoothness stated as an imposed assumption.}
+
+\section*{Key Findings}
+
+\todo{State the executive-level result. Use only settled report claims and result
+macros, e.g. the reconstruction-to-+48h softening pattern, the matched-smoothness
+comparison with \SmoothedMAP{}, and the central marginal-position check if needed.}
+
+\section*{Impact \& Limitations}
+
+\todo{Explain who benefits and why the result is useful, then include one honest
+limitation paragraph. Carry the covariance, predictive-skill and ensemble-calibration
+non-claims in positive, non-defensive form.}
+
+\section*{Next Steps}
+
+\todo{Set out the next useful work: validation against an external target,
+ensemble-style outputs / ECC or Schaake comparisons, temporal and cross-variable
+coherence, and downstream extreme-event uses where appropriate.}
+
+% If the final summary needs citations, use only keys already present in
+% report/construction/refs.bib and then uncomment these lines. The relative path
+% is from the build directory used by latexmk.
+% \bibliographystyle{unsrtnat}
+% \bibliography{../../report/construction/refs}
+
+\end{document}

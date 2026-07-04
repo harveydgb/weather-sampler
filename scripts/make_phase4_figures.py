@@ -59,6 +59,14 @@ BOOT_N_DRAWS = 2000
 BOOT_SEED = 0
 BOOT_CI = 0.95
 
+FIG_TITLE_FONTSIZE = 16
+PANEL_TITLE_FONTSIZE = 12.5
+AXIS_LABEL_FONTSIZE = 12
+TICK_LABEL_FONTSIZE = 10
+LEGEND_FONTSIZE = 9
+DENSE_LEGEND_FONTSIZE = 8
+ANNOTATION_FONTSIZE = 8
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUN_DIR = REPO_ROOT / "outputs" / "runs" / "phase_4_real"
 FIG_DIR = REPO_ROOT / "outputs" / "figures"
@@ -122,12 +130,26 @@ def _regime_label():
     return "reconstruction regime (step 0)"
 
 
+def _display_regime_label(*, compact=False):
+    raw = _regime_label()
+    if raw.startswith("forecast regime"):
+        try:
+            lead = raw.split("(+", 1)[1].split(" h", 1)[0]
+            lead_txt = f"+{float(lead):g} h"
+        except (IndexError, ValueError):
+            lead_txt = raw
+        return f"Forecast {lead_txt}" if compact else f"Forecast Regime ({lead_txt} Lead)"
+    if raw.startswith("reconstruction regime"):
+        return "Reconstruction" if compact else "Reconstruction Regime (Step 0)"
+    return raw
+
+
 def _mollweide_scatter(ax, latlons, values, title, cmap="viridis", vmin=None, vmax=None):
     sc = ax.scatter(
         np.radians(latlons[:, 1]), np.radians(latlons[:, 0]),
         c=values, s=0.5, cmap=cmap, vmin=vmin, vmax=vmax, rasterized=True,
     )
-    ax.set_title(title, fontsize=10)
+    ax.set_title(title, fontsize=PANEL_TITLE_FONTSIZE)
     ax.grid(True, lw=0.3, alpha=0.4)
     return sc
 
@@ -143,7 +165,7 @@ def _robinson_scatter(ax, latlons, values, title, cmap="viridis", vmin=None, vma
         rasterized=True, zorder=2,
     )
     _draw_robinson_coastlines(ax)
-    ax.set_title(title, fontsize=10, pad=10)
+    ax.set_title(title, fontsize=PANEL_TITLE_FONTSIZE, pad=10)
     ax.set_facecolor("0.96")
     ax.set_aspect("equal")
     ax.set_xlim(-2.75, 2.75)
@@ -175,13 +197,17 @@ def fig_maps(latlons, star):
     if era5_path.exists():
         with np.load(era5_path) as f:
             fields["ERA5 reference"] = f["era5"]
+    regime_title = _display_regime_label(compact=True)
     fig, _ = plot_mollweide_fields(
         latlons, fields,
-        suptitle=(
-            "Real O96 2-metre temperature (standardised), single snapshot\n"
-            f"{_regime_label()}"
-        ),
+        suptitle=f"{regime_title}: 2-metre temperature (standardised)",
+        suptitle_fontsize=FIG_TITLE_FONTSIZE,
+        panel_title_fontsize=PANEL_TITLE_FONTSIZE,
+        colorbar_label="2 m temperature (standardised)",
+        colorbar_label_fontsize=AXIS_LABEL_FONTSIZE,
+        colorbar_tick_fontsize=TICK_LABEL_FONTSIZE,
     )
+    fig.subplots_adjust(left=0.035, right=0.965, bottom=0.06, top=0.84)
     fig.savefig(FIG_DIR / "phase_4_maps.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("wrote phase_4_maps.png")
@@ -197,12 +223,12 @@ def fig_pareto_smear(star):
     m1_colour = field_style("m1_star")[0]
     m4_colour = field_style("m4_beta1")[0]
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.5, 4.6))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.5, 4.95))
 
     # Left: Pareto plane; R~ is trend-compressed on the real grid.
     ax1.plot(
         [float(r["r_tilde"]) for r in m1], [float(r["nll_over_n"]) for r in m1],
-        "o-", color=m1_colour, label="Joint MAP ($\\lambda$ sweep)",
+        "o-", color=m1_colour, markersize=7.5, label="Joint MAP ($\\lambda$ Sweep)",
     )
     # Anchors keyed by the shared field_style; omit the iid draw here so the
     # linear axis resolves the method/blur regime instead of the noise-floor tail.
@@ -212,42 +238,43 @@ def fig_pareto_smear(star):
             continue
         colour, marker, _ = field_style(name)
         x, y = float(r["r_tilde"]), float(r["nll_over_n"])
-        ax1.scatter(x, y, marker=marker, s=70, color=colour, zorder=5)
+        ax1.scatter(x, y, marker=marker, s=80, color=colour, zorder=5)
         _lkw = ({"xytext": (-4, 7), "ha": "right"} if name == "mixture_mean"
                 else {"xytext": (10, 8), "ha": "right"} if name == "mode_map"
                 else {"xytext": (4, 4), "ha": "left"})
         ax1.annotate(display_name(name), (x, y),
-                     fontsize=7, textcoords="offset points", **_lkw)
+                     fontsize=ANNOTATION_FONTSIZE, textcoords="offset points", **_lkw)
     if m4:
         r0 = m4[-1]
         ax1.scatter(float(r0["r_tilde"]), float(r0["nll_over_n"]),
-                    marker="o", s=70, color=m4_colour, zorder=5,
+                    marker="o", s=80, color=m4_colour, zorder=5,
                     label="Mode-selection MRF")
     if star_row is not None:
         colour, marker, _ = field_style("m1_star")
         ax1.scatter(float(star_row["r_tilde"]), float(star_row["nll_over_n"]),
-                    marker=marker, s=90, color=colour, edgecolor="k", linewidth=0.6,
+                    marker=marker, s=120, color=colour, edgecolor="k", linewidth=0.8,
                     zorder=6, label="Joint MAP @ $\\lambda^\\star$")
     ax1.axvline(star["target_r_tilde"], color="grey", lw=0.8, ls=":",
-                label="Smoothed MAP $\\tilde{R}$ target")
+                label="Smoothed MAP $\\tilde{R}$ Target")
     ax1.set_xscale("linear")
-    ax1.set_xlabel("Normalised roughness ($\\tilde{R}$)")
-    ax1.set_ylabel("NLL/N (nats)")
-    ax1.set_title("Faithfulness–coherence plane (lower-left is better)")
-    ax1.legend(fontsize=7)
+    ax1.set_xlabel("Scale-free roughness ($\\tilde{R}$)", fontsize=AXIS_LABEL_FONTSIZE)
+    ax1.set_ylabel("NLL/N (nats)", fontsize=AXIS_LABEL_FONTSIZE)
+    ax1.set_title("NLL vs Roughness", fontsize=PANEL_TITLE_FONTSIZE)
+    ax1.tick_params(labelsize=TICK_LABEL_FONTSIZE)
+    ax1.legend(fontsize=LEGEND_FONTSIZE, framealpha=0.9)
 
     # Right: smear fraction vs R~ -- the panel the bare Pareto cannot show.
-    for suffix, ls, tag in (("", "-", "global"), ("__bimodal", "--", "bimodal stratum")):
+    for suffix, ls, tag in (("", "-", "Global"), ("__bimodal", "--", "Bimodal $>2\\sigma$")):
         ax2.plot(
             [float(r["r_tilde"]) for r in m1],
             [float(r[f"dnll_frac_gt_0p125{suffix}"]) for r in m1],
-            "o" + ls, color=m1_colour, label=f"Joint MAP — {tag}",
+            "o" + ls, color=m1_colour, markersize=7.5, label=f"Joint MAP - {tag}",
         )
     if m4:
         ax2.plot(
             [float(r["r_tilde"]) for r in m4],
             [float(r["dnll_frac_gt_0p125"]) for r in m4],
-            "o-", color=m4_colour, label="Mode-selection MRF",
+            "o-", color=m4_colour, markersize=7.5, label="Mode-selection MRF",
         )
     # Global anchors (one star each, shared field_style colour); omit iid as above.
     for r in anchors:
@@ -256,12 +283,12 @@ def fig_pareto_smear(star):
             continue
         colour, marker, _ = field_style(name)
         x, y = float(r["r_tilde"]), float(r["dnll_frac_gt_0p125"])
-        ax2.scatter(x, y, marker=marker, s=70, color=colour, zorder=5)
+        ax2.scatter(x, y, marker=marker, s=80, color=colour, zorder=5)
         _lkw2 = ({"xytext": (-4, 7), "ha": "right"}
                  if name == "mode_map"
                  else {"xytext": (4, 4), "ha": "left"})
         ax2.annotate(display_name(name), (x, y),
-                     fontsize=7, textcoords="offset points", **_lkw2)
+                     fontsize=ANNOTATION_FONTSIZE, textcoords="offset points", **_lkw2)
 
     # Headline matched-R~ comparison IN the bimodal stratum, with within-field
     # spatial-bootstrap CIs (same draws as the \fcBimodalFrac* macros). This is
@@ -277,7 +304,7 @@ def fig_pareto_smear(star):
             yerr=[[m1_ci["point"] - m1_ci["lo"]], [m1_ci["hi"] - m1_ci["point"]]],
             fmt="o", ms=12, color=m1_colour, ecolor=m1_colour, capsize=5,
             elinewidth=2.0, markeredgecolor="k", markeredgewidth=1.2, zorder=8,
-            label="Joint MAP @ $\\lambda^\\star$ (bimodal, 95% CI)",
+            label="Joint MAP @ $\\lambda^\\star$ (Bimodal $>2\\sigma$, 95% CI)",
         )
     if blur_row is not None and blur_ci is not None:
         x = float(blur_row["r_tilde"])
@@ -287,22 +314,22 @@ def fig_pareto_smear(star):
             yerr=[[blur_ci["point"] - blur_ci["lo"]], [blur_ci["hi"] - blur_ci["point"]]],
             fmt=marker, ms=12, color=colour, ecolor=colour, capsize=5,
             elinewidth=2.0, markeredgecolor="k", markeredgewidth=1.2, zorder=8,
-            label="Smoothed MAP (bimodal, 95% CI)",
+            label="Smoothed MAP (Bimodal $>2\\sigma$, 95% CI)",
         )
-        ax2.annotate("Smoothed MAP\n(bimodal)", (x, blur_ci["point"]),
-                     fontsize=7, textcoords="offset points", xytext=(4, 4), ha="left")
+        ax2.annotate("Smoothed MAP\n(Bimodal)", (x, blur_ci["point"]),
+                     fontsize=ANNOTATION_FONTSIZE, textcoords="offset points",
+                     xytext=(4, 4), ha="left")
     ax2.axvline(star["target_r_tilde"], color="grey", lw=0.8, ls=":")
     ax2.set_xscale("linear")
-    ax2.set_xlabel("Normalised roughness ($\\tilde{R}$)")
-    ax2.set_ylabel("Fraction of cells with $\\Delta$NLL > 0.125 nats (= 0.5$\\sigma$ off mode)")
-    ax2.set_title("Smear tail vs coherence")
-    ax2.legend(fontsize=6.5)
+    ax2.set_xlabel("Scale-free roughness ($\\tilde{R}$)", fontsize=AXIS_LABEL_FONTSIZE)
+    ax2.set_ylabel("Off-mode fraction", fontsize=AXIS_LABEL_FONTSIZE)
+    ax2.set_title("Smear Tail vs Roughness", fontsize=PANEL_TITLE_FONTSIZE)
+    ax2.tick_params(labelsize=TICK_LABEL_FONTSIZE)
+    ax2.legend(fontsize=DENSE_LEGEND_FONTSIZE, framealpha=0.9)
 
     fig.suptitle(
-        _regime_label()
-        .replace("forecast regime", "Forecast regime")
-        .replace("reconstruction regime", "Reconstruction regime"),
-        fontsize=12,
+        _display_regime_label(),
+        fontsize=FIG_TITLE_FONTSIZE,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.975))
 
@@ -320,7 +347,7 @@ def fig_pareto_smear(star):
 
     def _plabel(ax, x, y, text, *, xytext, ha="left", va="center", bold=False):
         ax.annotate(
-            text, (float(x), float(y)), fontsize=7, color=m1_colour,
+            text, (float(x), float(y)), fontsize=ANNOTATION_FONTSIZE, color=m1_colour,
             fontweight="bold" if bold else "normal",
             xytext=xytext, textcoords="offset points", ha=ha, va=va,
             bbox=dict(facecolor="white", edgecolor="none", alpha=0.8, pad=0.8),
@@ -426,7 +453,7 @@ def fig_bimodal_enrichment(latlons, star):
             "m4_beta1": "Mode-selection\nMRF",
         }.get(name, display_name(name).replace(" ", "\n"))
 
-    fig = plt.figure(figsize=(13, 4.6))
+    fig = plt.figure(figsize=(13.2, 4.95))
     grid = fig.add_gridspec(1, 3, width_ratios=[1.0, 1.18, 0.045], wspace=0.28)
     ax1 = fig.add_subplot(grid[0, 0])
     width = 0.35
@@ -434,8 +461,8 @@ def fig_bimodal_enrichment(latlons, star):
     zero_smear = {n: float(np.mean(deltas[n] > 0.125)) == 0 for n in names}
     for offset, (mask, label) in enumerate(
         (
-            (bimodal_1s, f"bimodal $>1\\sigma$ ({int(bimodal_1s.sum()):,} cells)"),
-            (bimodal_2s, f"bimodal $>2\\sigma$ ({int(bimodal_2s.sum()):,} cells)"),
+            (bimodal_1s, f"Bimodal $>1\\sigma$ (Sensitivity, {int(bimodal_1s.sum()):,} cells)"),
+            (bimodal_2s, f"Bimodal $>2\\sigma$ (Headline, {int(bimodal_2s.sum()):,} cells)"),
         )
     ):
         enrich = []
@@ -448,32 +475,34 @@ def fig_bimodal_enrichment(latlons, star):
     ax1.axhline(1.0, color="grey", lw=0.8, ls=":")
     for i, n in enumerate(names):
         if zero_smear[n]:
-            ax1.text(xs[i], 0.05, "no smear\ncells", ha="center", va="bottom",
-                     fontsize=6, color="grey", style="italic")
+            ax1.text(xs[i], 0.05, "No off-mode\ncells", ha="center", va="bottom",
+                     fontsize=8, color="grey", style="italic")
     ax1.set_xticks(xs)
     ax1.set_xticklabels([bar_tick_label(n) for n in names], rotation=0,
-                        ha="center", fontsize=8)
+                        ha="center", fontsize=9)
     ax1.tick_params(axis="x", pad=4)
-    ax1.set_ylabel("enrichment of $\\Delta$NLL > 0.125 cells\n"
-                   "(within-stratum fraction / global fraction)")
-    ax1.set_title("Enrichment of $\\Delta$NLL > 0.125 cells by stratum")
-    ax1.legend(fontsize=8)
+    ax1.tick_params(axis="y", labelsize=TICK_LABEL_FONTSIZE)
+    ax1.set_ylabel("Enrichment ratio", fontsize=AXIS_LABEL_FONTSIZE)
+    ax1.set_title("Off-Mode Enrichment by Bimodal Class", fontsize=PANEL_TITLE_FONTSIZE)
+    ax1.legend(fontsize=LEGEND_FONTSIZE)
 
     ax2 = fig.add_subplot(grid[0, 1])
     cbar_ax = fig.add_subplot(grid[0, 2])
     d = deltas["m1_star"]
     sc = _robinson_scatter(
         ax2, latlons, np.log10(np.maximum(d, 1e-6)),
-        "$\\log_{10}$ $\\Delta$NLL to best mode "
-        f"(Joint MAP, $\\lambda^\\star$={star['lambda_star']:.0f})",
+        "$\\log_{10}$ Off-Mode Cost\n"
+        f"Joint MAP @ $\\lambda^\\star$={star['lambda_star']:.0f}",
         cmap="viridis", vmin=-4, vmax=1,
     )
-    fig.colorbar(sc, cax=cbar_ax, orientation="vertical",
-                 label="$\\log_{10}$ $\\Delta$NLL (nats)")
+    cbar = fig.colorbar(sc, cax=cbar_ax, orientation="vertical",
+                        label="$\\log_{10}$ $\\Delta$NLL")
+    cbar.set_label("$\\log_{10}$ $\\Delta$NLL", fontsize=AXIS_LABEL_FONTSIZE)
+    cbar.ax.tick_params(labelsize=TICK_LABEL_FONTSIZE)
 
-    regime_title = _regime_label().replace("forecast regime", "Forecast regime")
-    fig.suptitle(regime_title, fontsize=10, y=0.97)
-    fig.subplots_adjust(left=0.06, right=0.965, bottom=0.16, top=0.84)
+    regime_title = _display_regime_label()
+    fig.suptitle(regime_title, fontsize=FIG_TITLE_FONTSIZE, y=0.98)
+    fig.subplots_adjust(left=0.06, right=0.965, bottom=0.17, top=0.80)
     fig.savefig(FIG_DIR / "phase_4_bimodal_enrichment.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("wrote phase_4_bimodal_enrichment.png")

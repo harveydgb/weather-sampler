@@ -92,6 +92,16 @@ def fmt_pct(v):
     return PLACEHOLDER if v is None else format(100.0 * v, ".1f") + r"\%"
 
 
+def fmt_pp(v):
+    """Signed percentage-point formatter for DIFFERENCES between two cell shares
+    (e.g. JointMAP's off-mode fraction minus the blur's). A share of cells is a
+    fmt_pct level; the gap between two such shares is a percentage-point
+    difference, not a percentage of anything, so it gets its own unit (harvey,
+    4 Jul: propagate the pp/% distinction across the reconFrac/fcBimodalFrac
+    macro family)."""
+    return PLACEHOLDER if v is None else format(100.0 * v, "+.1f") + r"\,pp"
+
+
 def fmt_lambda(v):
     return _fmt(v, ".1f")
 
@@ -209,7 +219,7 @@ def build_pi_softening_table(soft_rows):
         r" & \multicolumn{2}{c}{median max-$\pi$} & \multicolumn{2}{c}{one-hot frac.} "
         r"& \multicolumn{2}{c}{2nd-mode mass} \\",
         r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}",
-        r"Lead & 6\,ep & 14\,ep & 6\,ep & 14\,ep & 6\,ep & 14\,ep \\",
+        r"Hours ahead & 6\,ep & 14\,ep & 6\,ep & 14\,ep & 6\,ep & 14\,ep \\",
         r"\midrule",
     ]
     body = []
@@ -241,7 +251,7 @@ def build_lambda_table(lambda_stars, soft_rows):
         r"\toprule",
         r" & \multicolumn{2}{c}{$\lambda^\star$} \\",
         r"\cmidrule(lr){2-3}",
-        r"Lead & 6\,ep & 14\,ep \\",
+        r"Hours ahead & 6\,ep & 14\,ep \\",
         r"\midrule",
     ]
     body = []
@@ -283,7 +293,7 @@ def build_faithfulness_table(faith_rows, soft_rows):
         r"\toprule",
         r" & \multicolumn{2}{c}{marg.-pos.\ 90\%} \\",
         r"\cmidrule(lr){2-3}",
-        r"Lead & 6\,ep & 14\,ep \\",
+        r"Hours ahead & 6\,ep & 14\,ep \\",
         r"\midrule",
     ]
     body = []
@@ -648,11 +658,11 @@ def _bootstrap_frac_ci(run_dir, strata, *, threshold=BOOT_THRESHOLD,
     return out
 
 
-def _ci_macros(base, ci_rec):
+def _ci_macros(base, ci_rec, fmt=fmt_pi):
     if not ci_rec:
         return {base: PLACEHOLDER, f"{base}Lo": PLACEHOLDER, f"{base}Hi": PLACEHOLDER}
-    return {base: fmt_pi(ci_rec["point"]),
-            f"{base}Lo": fmt_pi(ci_rec["lo"]), f"{base}Hi": fmt_pi(ci_rec["hi"])}
+    return {base: fmt(ci_rec["point"]),
+            f"{base}Lo": fmt(ci_rec["lo"]), f"{base}Hi": fmt(ci_rec["hi"])}
 
 
 def build_bootstrap_macros(recon, fc):
@@ -668,13 +678,15 @@ def build_bootstrap_macros(recon, fc):
     rg, rb = recon.get("global", {}), recon.get("bimodal", {})
     fb = fc.get("bimodal", {})
     macros = {}
-    macros.update(_ci_macros("reconFracMethod", rg.get("m1")))
-    macros.update(_ci_macros("reconFracBlur", rg.get("blur")))
-    macros.update(_ci_macros("reconFracGap", rg.get("gap")))
-    macros.update(_ci_macros("reconBimodalFracGap", rb.get("gap")))
-    macros.update(_ci_macros("fcBimodalFracMethod", fb.get("m1")))
-    macros.update(_ci_macros("fcBimodalFracBlur", fb.get("blur")))
-    macros.update(_ci_macros("fcBimodalFracGap", fb.get("gap")))
+    # Levels (shares of cells) render as %; gaps (differences between two shares)
+    # render as pp -- harvey, 4 Jul: propagate the %/pp distinction report-wide.
+    macros.update(_ci_macros("reconFracMethod", rg.get("m1"), fmt=fmt_pct))
+    macros.update(_ci_macros("reconFracBlur", rg.get("blur"), fmt=fmt_pct))
+    macros.update(_ci_macros("reconFracGap", rg.get("gap"), fmt=fmt_pp))
+    macros.update(_ci_macros("reconBimodalFracGap", rb.get("gap"), fmt=fmt_pp))
+    macros.update(_ci_macros("fcBimodalFracMethod", fb.get("m1"), fmt=fmt_pct))
+    macros.update(_ci_macros("fcBimodalFracBlur", fb.get("blur"), fmt=fmt_pct))
+    macros.update(_ci_macros("fcBimodalFracGap", fb.get("gap"), fmt=fmt_pp))
     macros["bootstrapNDraws"] = str(BOOT_N_DRAWS)
     macros["bootstrapCIPct"] = format(100.0 * BOOT_CI, ".0f")
     return macros
@@ -993,14 +1005,17 @@ SENSITIVITY_QUARTER_CUT = 0.25
 SENSITIVITY_DEEP_CUT = phase4_eval.DNLL_THRESHOLDS[1]  # 0.5 nat
 
 
-def _ci_delta_macros(base, ci_rec):
+def _ci_delta_macros(base, ci_rec, fmt=fmt_delta):
     """Signed (+/-) point + CI-bound macros, for gap quantities whose sign is
-    the story (the DEC-4 ruling quotes them signed: -0.034 ... +0.017)."""
+    the story (the DEC-4 ruling quotes them signed: -0.034 ... +0.017). These
+    are differences between two cell-shares, so `fmt_pp` is passed at the call
+    sites (harvey, 4 Jul); `fmt_delta` stays the default for any future signed
+    quantity that is not itself a share difference."""
 
     if not ci_rec:
         return {base: PLACEHOLDER, f"{base}Lo": PLACEHOLDER, f"{base}Hi": PLACEHOLDER}
-    return {base: fmt_delta(ci_rec["point"]),
-            f"{base}Lo": fmt_delta(ci_rec["lo"]), f"{base}Hi": fmt_delta(ci_rec["hi"])}
+    return {base: fmt(ci_rec["point"]),
+            f"{base}Lo": fmt(ci_rec["lo"]), f"{base}Hi": fmt(ci_rec["hi"])}
 
 
 def build_threshold_sensitivity_macros(run_dir):
@@ -1012,8 +1027,8 @@ def build_threshold_sensitivity_macros(run_dir):
     deep = _bootstrap_frac_ci(run_dir, ("bimodal",),
                               threshold=SENSITIVITY_DEEP_CUT).get("bimodal", {})
     macros = {}
-    macros.update(_ci_delta_macros("fcBimodalFracGapQuarterNat", quarter.get("gap")))
-    macros.update(_ci_delta_macros("fcBimodalFracGapHalfNat", deep.get("gap")))
+    macros.update(_ci_delta_macros("fcBimodalFracGapQuarterNat", quarter.get("gap"), fmt=fmt_pp))
+    macros.update(_ci_delta_macros("fcBimodalFracGapHalfNat", deep.get("gap"), fmt=fmt_pp))
     deep_m1 = deep.get("m1")
     macros["fcDeepTailStratumFrac"] = (
         fmt_pct(deep_m1["point"]) if deep_m1 else PLACEHOLDER)

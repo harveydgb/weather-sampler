@@ -78,6 +78,9 @@ in the relevant phase notes.
 - `scripts/`: runnable experiment and diagnostic scripts.
 - `notebooks/`: exploratory notebooks.
 - `research_notes/`: phase notes, meeting notes, and research planning.
+- `report/`: LaTeX dissertation source and generated report PDFs.
+- `executive-summary/`: LaTeX source for the separate executive summary; `make summary`
+  writes `report/summary.pdf`.
 - `outputs/`: generated data, figures, and run artifacts. Large/generated files are ignored by git.
 
 ## Generated Outputs

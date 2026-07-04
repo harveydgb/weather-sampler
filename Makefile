@@ -5,15 +5,16 @@
 #
 #   make ch5        # softening -> faithfulness -> per-lead figures -> emit macros
 #   make test       # the regression suite (203 passed, 1 skipped)
-#   make report       # build report/thesis.pdf
-#   make report-watch # keep report/thesis.pdf updated while editing thesis.tex
+#   make report        # build report/thesis.pdf
+#   make summary       # build report/summary.pdf from executive-summary/
+#   make report-watch  # keep report/thesis.pdf updated while editing thesis.tex
 #
 # The emitter refuses to run when the forecast artifacts are absent (so a stray
 # run cannot clobber the committed macros); regenerate the artifacts first.
 
 PY := .venv/bin/python
 
-.PHONY: ch5 forecast-leads softening faithfulness figures toy-figures emit test report report-watch
+.PHONY: ch5 forecast-leads softening faithfulness figures toy-figures emit test report report-watch summary summary-watch summary-clean summary-texcount
 
 ## Full per-lead Phase 4 audit for both checkpoints + the converged replicate
 ## inits. Needs ~/model_outputs/*.pt and the WeatherGenerator venv (torch).
@@ -48,3 +49,15 @@ report:
 
 report-watch:
 	$(MAKE) -C report/construction watch
+
+summary:
+	$(MAKE) -C executive-summary all
+
+summary-watch:
+	$(MAKE) -C executive-summary watch
+
+summary-clean:
+	$(MAKE) -C executive-summary clean
+
+summary-texcount:
+	$(MAKE) -C executive-summary texcount

@@ -162,12 +162,14 @@ def test_build_bootstrap_macros_emits_points_and_ci_bounds():
     fc = {"bimodal": {"m1": _ci(0.198, 0.180, 0.216), "blur": _ci(0.294, 0.275, 0.313),
                       "gap": _ci(-0.096, -0.120, -0.072), "n": 1500}}
     macros = m.build_bootstrap_macros(recon, fc)
-    assert macros["reconFracMethod"] == "0.169"
-    assert macros["reconFracGapLo"] == "-0.303" and macros["reconFracGapHi"] == "-0.291"
-    assert macros["fcBimodalFracBlur"] == "0.294"
+    # levels (shares of cells) render as %; gaps (differences of shares) as pp
+    # -- harvey, 4 Jul: propagate the %/pp distinction across this macro family.
+    assert macros["reconFracMethod"] == r"16.9\%"
+    assert macros["reconFracGapLo"] == r"-30.3\,pp" and macros["reconFracGapHi"] == r"-29.1\,pp"
+    assert macros["fcBimodalFracBlur"] == r"29.4\%"
     # recon-bimodal gap CI straddles 0 (thin stratum) -> honest non-separation
-    assert macros["reconBimodalFracGapLo"] == "-0.060"
-    assert macros["reconBimodalFracGapHi"] == "0.010"
+    assert macros["reconBimodalFracGapLo"] == r"-6.0\,pp"
+    assert macros["reconBimodalFracGapHi"] == r"+1.0\,pp"
     assert macros["bootstrapNDraws"] == "2000" and macros["bootstrapCIPct"] == "95"
 
 
@@ -686,18 +688,19 @@ def test_build_threshold_sensitivity_macros_pin_dec4_values():
     """DEC-4: the sensitivity macros reproduce the 2 Jul log numbers exactly via
     the pipeline's own `_bootstrap_frac_ci` at varied threshold (production seed,
     no new runs) -- the stratified gap still favours the sampler at the 0.25-nat
-    (~0.7-sigma-equivalent) cut, -0.034 CI [-0.045, -0.023], reverses only at the
-    0.5-nat deep cut, +0.017 CI [+0.008, +0.027], where Joint MAP's deep tail is
+    (~0.7-sigma-equivalent) cut, -3.4 pp CI [-4.5, -2.3] pp, reverses only at the
+    0.5-nat deep cut, +1.7 pp CI [+0.8, +2.7] pp, where Joint MAP's deep tail is
     6.3% of the stratum. The headline 0.125-nat macros are untouched (their own
-    pins above cover that)."""
+    pins above cover that). Rendered in pp, not a bare decimal, since these are
+    differences between two cell shares (harvey, 4 Jul, DEC-38 r3 follow-up)."""
     m = _load()
     macros = m.build_threshold_sensitivity_macros(FC_CONVERGED_RUN)
-    assert macros["fcBimodalFracGapQuarterNat"] == "-0.034"
-    assert macros["fcBimodalFracGapQuarterNatLo"] == "-0.045"
-    assert macros["fcBimodalFracGapQuarterNatHi"] == "-0.023"
-    assert macros["fcBimodalFracGapHalfNat"] == "+0.017"
-    assert macros["fcBimodalFracGapHalfNatLo"] == "+0.008"
-    assert macros["fcBimodalFracGapHalfNatHi"] == "+0.027"
+    assert macros["fcBimodalFracGapQuarterNat"] == r"-3.4\,pp"
+    assert macros["fcBimodalFracGapQuarterNatLo"] == r"-4.5\,pp"
+    assert macros["fcBimodalFracGapQuarterNatHi"] == r"-2.3\,pp"
+    assert macros["fcBimodalFracGapHalfNat"] == r"+1.7\,pp"
+    assert macros["fcBimodalFracGapHalfNatLo"] == r"+0.8\,pp"
+    assert macros["fcBimodalFracGapHalfNatHi"] == r"+2.7\,pp"
     assert macros["fcDeepTailStratumFrac"] == r"6.3\%"
 
 

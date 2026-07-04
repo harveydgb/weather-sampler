@@ -365,6 +365,11 @@ def plot_mollweide_fields(
     suptitle: str,
     cmap: str = "RdBu_r",
     ncols: int = 3,
+    suptitle_fontsize: float = 13,
+    panel_title_fontsize: float | None = None,
+    colorbar_label: str = "2-metre temperature (standardised)",
+    colorbar_label_fontsize: float | None = None,
+    colorbar_tick_fontsize: float | None = None,
 ):
     import matplotlib.pyplot as plt
 
@@ -415,7 +420,10 @@ def plot_mollweide_fields(
             zorder=2,
         )
         _draw_robinson_coastlines(ax)
-        ax.set_title(title, pad=10)
+        if panel_title_fontsize is None:
+            ax.set_title(title, pad=10)
+        else:
+            ax.set_title(title, pad=10, fontsize=panel_title_fontsize)
         ax.set_facecolor("0.96")
         ax.set_aspect("equal")
         ax.set_xlim(-2.75, 2.75)
@@ -423,9 +431,13 @@ def plot_mollweide_fields(
         ax.axis("off")
     for ax in axes_grid.reshape(-1)[len(field_items):]:
         ax.set_visible(False)
-    fig.colorbar(sc, cax=cbar_ax, orientation="vertical",
-                 label="2-metre temperature (standardised)")
-    fig.suptitle(suptitle, y=0.98, fontsize=13)
+    cbar = fig.colorbar(sc, cax=cbar_ax, orientation="vertical",
+                        label=colorbar_label)
+    if colorbar_label_fontsize is not None:
+        cbar.set_label(colorbar_label, fontsize=colorbar_label_fontsize)
+    if colorbar_tick_fontsize is not None:
+        cbar.ax.tick_params(labelsize=colorbar_tick_fontsize)
+    fig.suptitle(suptitle, y=0.98, fontsize=suptitle_fontsize)
     fig.subplots_adjust(left=0.035, right=0.965, bottom=0.06, top=0.89)
     return fig, axes_grid
 
@@ -456,7 +468,8 @@ def _chevron_path():
 
 def _segment_arrows(
     ax, x, y, colour, *, label=None, label_segment=None, text_xy=(0, 8),
-    mutation_scale=12, n_arrows=None, outline=False, arrow_size=None,
+    mutation_scale=12, n_arrows=None, arrow_segments=None, outline=False,
+    arrow_size=None, arrow_linewidth=1.0,
 ):
     """Overlay direction arrowheads along a sweep.
 
@@ -464,8 +477,10 @@ def _segment_arrows(
     point). If ``n_arrows`` is given, only that many arrowheads are placed --
     spaced evenly along the valid segments and sitting at each segment's
     midpoint -- so the per-point circle markers from the underlying ``o-`` line
-    stay visible. ``outline=True`` renders the arrowheads unfilled (coloured
-    outline only) instead of solid blocks.
+    stay visible. ``arrow_segments`` can pin arrowheads to specific zero-based
+    segment indices for hand-tuned report figures. ``outline=True`` renders the
+    arrowheads unfilled (coloured outline only) instead of solid blocks.
+    ``arrow_linewidth`` controls the outline stroke width.
     """
     from matplotlib.markers import MarkerStyle
     from matplotlib.transforms import Affine2D
@@ -484,7 +499,10 @@ def _segment_arrows(
             continue
         valid_segments.append(i)
 
-    if n_arrows is None:
+    if arrow_segments is not None:
+        draw_segments = [int(i) for i in arrow_segments if int(i) in valid_segments]
+        at_midpoint = True
+    elif n_arrows is None:
         draw_segments = valid_segments
         at_midpoint = False
     elif not valid_segments or n_arrows >= len(valid_segments):
@@ -515,7 +533,7 @@ def _segment_arrows(
             # arms of the chevron are stroked (in `edgecolors`).
             ax.scatter(
                 [px], [py], marker=marker, s=base_size * 1.5,
-                facecolors="none", edgecolors=colour, linewidths=1.0,
+                facecolors="none", edgecolors=colour, linewidths=arrow_linewidth,
                 zorder=10, clip_on=True,
             )
         else:
