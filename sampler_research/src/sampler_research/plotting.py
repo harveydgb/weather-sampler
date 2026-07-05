@@ -274,6 +274,12 @@ def _wrap_longitudes(lons):
     return ((np.asarray(lons, dtype=float) + 180.0) % 360.0) - 180.0
 
 
+def _latitude_marker_sizes(lats_deg, base_size=14.0):
+    """Latitude-dependent scatter marker areas for regional O96 point maps."""
+
+    return float(base_size) * (0.65 + 0.7 * (np.abs(np.asarray(lats_deg)) / 90.0) ** 2)
+
+
 @lru_cache(maxsize=1)
 def _natural_earth_coastline_segments():
     """Natural Earth 110m coastline segments in wrapped lon/lat degrees."""
@@ -370,6 +376,13 @@ def plot_mollweide_fields(
     colorbar_label: str = "2-metre temperature (standardised)",
     colorbar_label_fontsize: float | None = None,
     colorbar_tick_fontsize: float | None = None,
+    colorbar_shrink: float = 1.0,
+    row_colorbars: bool = False,
+    figsize: tuple[float, float] | None = None,
+    suptitle_y: float = 0.98,
+    panel_title_pad: float = 10,
+    top: float = 0.89,
+    hspace: float = 0.08,
 ):
     import matplotlib.pyplot as plt
 
@@ -390,19 +403,22 @@ def plot_mollweide_fields(
     ncols = min(max(1, int(ncols)), len(field_items))
     nrows = int(np.ceil(len(field_items) / ncols))
 
-    fig = plt.figure(figsize=(4.7 * ncols + 0.55, 2.85 * nrows + 0.25))
+    fig = plt.figure(figsize=figsize or (4.7 * ncols + 0.55, 2.85 * nrows + 0.25))
     grid = fig.add_gridspec(
         nrows,
         ncols + 1,
         width_ratios=[1.0] * ncols + [0.055],
         wspace=0.08,
-        hspace=0.08,
+        hspace=hspace,
     )
     axes_grid = np.empty((nrows, ncols), dtype=object)
     for row in range(nrows):
         for col in range(ncols):
             axes_grid[row, col] = fig.add_subplot(grid[row, col])
-    cbar_ax = fig.add_subplot(grid[:, -1])
+    cbar_axes = [
+        fig.add_subplot(grid[row, -1])
+        for row in range(nrows if row_colorbars else 1)
+    ]
     sc = None
     for idx, (title, values) in enumerate(field_items):
         row, col = divmod(idx, ncols)
@@ -421,9 +437,9 @@ def plot_mollweide_fields(
         )
         _draw_robinson_coastlines(ax)
         if panel_title_fontsize is None:
-            ax.set_title(title, pad=10)
+            ax.set_title(title, pad=panel_title_pad)
         else:
-            ax.set_title(title, pad=10, fontsize=panel_title_fontsize)
+            ax.set_title(title, pad=panel_title_pad, fontsize=panel_title_fontsize)
         ax.set_facecolor("0.96")
         ax.set_aspect("equal")
         ax.set_xlim(-2.75, 2.75)
@@ -431,14 +447,25 @@ def plot_mollweide_fields(
         ax.axis("off")
     for ax in axes_grid.reshape(-1)[len(field_items):]:
         ax.set_visible(False)
-    cbar = fig.colorbar(sc, cax=cbar_ax, orientation="vertical",
-                        label=colorbar_label)
-    if colorbar_label_fontsize is not None:
-        cbar.set_label(colorbar_label, fontsize=colorbar_label_fontsize)
-    if colorbar_tick_fontsize is not None:
-        cbar.ax.tick_params(labelsize=colorbar_tick_fontsize)
-    fig.suptitle(suptitle, y=0.98, fontsize=suptitle_fontsize)
-    fig.subplots_adjust(left=0.035, right=0.965, bottom=0.06, top=0.89)
+    fig.suptitle(suptitle, y=suptitle_y, fontsize=suptitle_fontsize)
+    fig.subplots_adjust(left=0.035, right=0.965, bottom=0.06, top=top)
+    if colorbar_shrink < 1.0:
+        for cbar_ax in cbar_axes:
+            pos = cbar_ax.get_position()
+            new_height = pos.height * colorbar_shrink
+            cbar_ax.set_position([
+                pos.x0,
+                pos.y0 + 0.5 * (pos.height - new_height),
+                pos.width,
+                new_height,
+            ])
+    for cbar_ax in cbar_axes:
+        cbar = fig.colorbar(sc, cax=cbar_ax, orientation="vertical",
+                            label=colorbar_label)
+        if colorbar_label_fontsize is not None:
+            cbar.set_label(colorbar_label, fontsize=colorbar_label_fontsize)
+        if colorbar_tick_fontsize is not None:
+            cbar.ax.tick_params(labelsize=colorbar_tick_fontsize)
     return fig, axes_grid
 
 

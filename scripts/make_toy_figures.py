@@ -363,10 +363,11 @@ def fig_pareto_plane(art, fig_dir=FIG_DIR):
     # (see fig_nonsmearing and Table 4.1); the report prose and caption note the omission.
     anchor_labels = {
         "mixture_mean": dict(annotate_xy=(6, 4)),
+        "mode_map": dict(annotate_xy=(-8, 12), annotate_ha="right"),
         "smoothed_map": dict(annotate_xy=(6, 4)),
         "a_star": dict(annotate_xy=(0, 14), annotate_ha="center"),
     }
-    for key in ("mixture_mean", "smoothed_map", "a_star"):
+    for key in ("mixture_mean", "mode_map", "smoothed_map", "a_star"):
         _anchor(
             ax, art, key, float(art["scores_a"][key]["nll_over_n"]),
             **anchor_labels[key],

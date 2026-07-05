@@ -28,6 +28,7 @@ import numpy as np
 from sampler_research import faithfulness as fth
 from sampler_research import method4_mrf as rm4
 from sampler_research import phase4_eval
+from sampler_research.graph import scale_free_roughness
 from sampler_research.io import load_sampler_arrays
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -1183,6 +1184,108 @@ def build_compute_macros(record, timings):
     return out
 
 
+# ------------------------------------------- report-steering-plan lookup macros
+# (DEC-R44/R45/R51, 5 Jul): W1's ERA5-vs-anchors R~ trio, W2's three matched-lambda*
+# off-mode-fraction pairs, and W8's lambda=0 dominance numbers -- all read straight
+# off the canonical +48h converged scores.csv rows (GLOBAL columns only, not the
+# `(bimodal)`-suffixed stratified ones), via the existing `_scores_row` lookup.
+STEERING_RTILDE_ROWS = (
+    ("fcPerCellRtilde", "mode_map"),
+    ("fcIidRtilde", "iid_seed0"),
+    ("fcLamZeroRtilde", "m1_lam0"),
+)
+STEERING_SMEAR_ROWS = (
+    ("fcSmearBlurNFive", "smoothed_map_n5"),
+    ("fcSmearHalfStar", "m1_star_half"),
+    ("fcSmearBlurNTen", "smoothed_map_n10"),
+    ("fcSmearStar", "m1_star"),
+    ("fcSmearBlurNTwenty", "smoothed_map_n20"),
+    ("fcSmearDoubleStar", "m1_star_double"),
+    ("fcLamZeroSmearFrac", "m1_lam0"),
+    ("fcPerCellSmearFrac", "mode_map"),
+)
+STEERING_NLL_ROWS = (
+    ("fcLamZeroNll", "m1_lam0"),
+    ("fcPerCellNll", "mode_map"),
+)
+
+
+def build_steering_lookup_macros(run_dir):
+    """Pure-ish: canonical +48h `scores.csv` GLOBAL columns -> the report-steering-
+    plan's W1/W2/W8 macros (report_steering_plan.md Section 3, #2-9 and #15-19).
+    R~ at 4 d.p. except `\\fcIidRtilde` (3 d.p. by design, an approximate ~seed0
+    anchor); off-mode `frac>0.125` via the house `fmt_pct`; NLL/N at 4 d.p. with
+    a leading ASCII minus, matching the existing `\\gap*` macro style. A row
+    absent from the CSV -> em-dash placeholder for just that macro."""
+
+    scores_path = Path(run_dir) / "scores.csv"
+    macros = {}
+    for macro, row_name in STEERING_RTILDE_ROWS:
+        row = _scores_row(scores_path, row_name)
+        spec = ".3f" if macro == "fcIidRtilde" else ".4f"
+        macros[macro] = format(float(row["r_tilde"]), spec) if row else PLACEHOLDER
+    for macro, row_name in STEERING_SMEAR_ROWS:
+        row = _scores_row(scores_path, row_name)
+        macros[macro] = fmt_pct(float(row["dnll_frac_gt_0p125"])) if row else PLACEHOLDER
+    for macro, row_name in STEERING_NLL_ROWS:
+        row = _scores_row(scores_path, row_name)
+        macros[macro] = format(float(row["nll_over_n"]), ".4f") if row else PLACEHOLDER
+    return macros
+
+
+# ------------------------------------------------- W1 ERA5 roughness (computed)
+# The one COMPUTED steering macro (report_steering_plan.md #1): ERA5's own R~,
+# via the SAME `scale_free_roughness` call the scores.csv rows were built from.
+# The mandatory cross-check re-runs the mode_map anchor through the identical
+# call and asserts it reproduces the mode_map R~ already in scores.csv (i.e.
+# `\fcPerCellRtilde`) -- the convention-match guard the steering plan requires
+# before the ERA5 number can be trusted alongside the scores-derived anchors.
+STEERING_ERA5_CROSSCHECK_TOL = 1e-6
+
+
+def build_era5_roughness_macros(run_dir, graph_path):
+    """`{era5,mode_map anchor}` + `o96_knn_k8_graph.npz` edges -> `\\fcEraRtilde`.
+
+    Loads `era5_reference.npz['era5']` and `graph_path['edges']`, computes
+    `scale_free_roughness(era5, edges)` for `\\fcEraRtilde` (4 d.p.). Then loads
+    the SAME run dir's `anchors.npz['mode_map']`, runs it through the identical
+    `scale_free_roughness` call, and asserts the result matches the `mode_map`
+    R~ already in `scores.csv` to `STEERING_ERA5_CROSSCHECK_TOL` -- raising
+    `ValueError` (never silently returning a placeholder) if the convention has
+    drifted, since the ERA5 number is only trustworthy under a matching
+    convention. Missing artifacts (fresh clone) -> `\\fcEraRtilde` placeholder,
+    no cross-check attempted."""
+
+    run_dir, graph_path = Path(run_dir), Path(graph_path)
+    era5_path = run_dir / "era5_reference.npz"
+    if not era5_path.exists() or not graph_path.exists():
+        return {"fcEraRtilde": PLACEHOLDER}
+
+    with np.load(era5_path) as f:
+        era5 = np.asarray(f["era5"], dtype=float)
+    with np.load(graph_path) as f:
+        edges = f["edges"]
+    era5_r_tilde, _collapsed = scale_free_roughness(era5, edges)
+
+    anchors_path = run_dir / "anchors.npz"
+    scores_path = run_dir / "scores.csv"
+    if anchors_path.exists() and scores_path.exists():
+        with np.load(anchors_path) as f:
+            mode_map = np.asarray(f["mode_map"], dtype=float)
+        mode_map_r_tilde, _collapsed = scale_free_roughness(mode_map, edges)
+        scores_row = _scores_row(scores_path, "mode_map")
+        if scores_row is not None:
+            scores_r_tilde = float(scores_row["r_tilde"])
+            if abs(mode_map_r_tilde - scores_r_tilde) > STEERING_ERA5_CROSSCHECK_TOL:
+                raise ValueError(
+                    "ERA5 roughness convention cross-check failed: mode_map "
+                    f"through scale_free_roughness ({mode_map_r_tilde}) does not "
+                    f"match scores.csv's mode_map r_tilde ({scores_r_tilde}); the "
+                    "ERA5 number is not trustworthy under a drifted convention.")
+
+    return {"fcEraRtilde": format(era5_r_tilde, ".4f")}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1293,6 +1396,14 @@ def main():
     macros = {**macros, **build_compute_macros(
         json.loads(compute_record_path.read_text()) if compute_record_path.exists() else None,
         json.loads(timings_path.read_text()) if timings_path.exists() else None)}
+    # Report-steering-plan (5 Jul, DEC-R44/R45/R51): W1/W2/W8 lookup macros from
+    # the canonical +48h scores.csv, plus the one computed ERA5 roughness macro
+    # (with its mandatory mode_map convention cross-check).
+    macros = {**macros, **build_steering_lookup_macros(
+        args.runs_dir / "phase_4_fc48_14ep_step8")}
+    macros = {**macros, **build_era5_roughness_macros(
+        args.runs_dir / "phase_4_fc48_14ep_step8",
+        args.runs_dir / "o96_knn_k8_graph.npz")}
     tables = {
         "pi_softening.tex": build_pi_softening_table(soft_rows),
         "lambda_calibration.tex": build_lambda_table(lambda_stars, soft_rows),

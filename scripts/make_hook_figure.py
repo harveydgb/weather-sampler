@@ -29,6 +29,7 @@ import numpy as np
 
 from sampler_research.io import load_real_marginal
 from sampler_research.plotting import (
+    _latitude_marker_sizes,
     _natural_earth_coastline_segments,
     _wrap_longitudes,
     plot_mollweide_fields,
@@ -49,6 +50,11 @@ TITLE_STRUCTURE = "ERA5 reanalysis 2 m temperature"
 # independent-draw speckle is unmistakable.
 LON_MIN, LON_MAX = -60.0, 40.0
 LAT_MIN, LAT_MAX = 20.0, 75.0
+
+# Match the Phase-4 regional point-size treatment after accounting for panel
+# size. Matplotlib scatter `s` is marker area; the Figure 1.1 regional panels
+# are 1.418x the area of a panel in `phase_4_region_maps.png`.
+REGION_MARKER_BASE_SIZE = 14.0 * 1.4181399176954732
 
 
 def _load():
@@ -83,13 +89,14 @@ def make_region(latlons, iid, era5):
     vspan = float(max(abs(p2), abs(p98)))
     vmin, vmax = -vspan, vspan
     aspect = 1.0 / np.cos(np.deg2rad(0.5 * (LAT_MIN + LAT_MAX)))
+    marker_sizes = _latitude_marker_sizes(lat_b, base_size=REGION_MARKER_BASE_SIZE)
 
     fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.4))
     for ax, (title, field) in zip(
         axes, ((TITLE_NOISE, iid[box]), (TITLE_STRUCTURE, era5[box]))
     ):
         sc = ax.scatter(
-            lon_b, lat_b, c=field, s=14.0, cmap="RdBu_r", vmin=vmin, vmax=vmax,
+            lon_b, lat_b, c=field, s=marker_sizes, cmap="RdBu_r", vmin=vmin, vmax=vmax,
             rasterized=True, zorder=2,
         )
         for seg_lon, seg_lat in _natural_earth_coastline_segments():

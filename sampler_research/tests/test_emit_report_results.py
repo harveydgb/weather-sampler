@@ -866,3 +866,69 @@ def test_build_compute_macros_placeholders_when_absent():
     m = _load()
     macros = m.build_compute_macros(None, None)
     assert all(v == m.PLACEHOLDER for v in macros.values())
+
+
+GRAPH_PATH = REPO_ROOT / "outputs" / "runs" / "o96_knn_k8_graph.npz"
+
+
+@needs_fc_converged
+def test_build_steering_lookup_macros_pin_report_steering_plan_values():
+    """Report-steering-plan (5 Jul) macros #2-9 and #15-19: the W1 R~ trio, the
+    W2 three matched-lambda* off-mode-fraction pairs, and the W8 lambda=0
+    dominance numbers, all read from the canonical +48h scores.csv GLOBAL
+    columns. `\\fcSmearBlurNTwenty` pins to the artifact's own rounding
+    (46.5%), not the plan draft's 46.6% transcription -- the ~2.5x ratio to
+    `\\fcSmearDoubleStar` (18.6%) is unaffected either way."""
+    m = _load()
+    macros = m.build_steering_lookup_macros(FC_CONVERGED_RUN)
+    assert macros["fcPerCellRtilde"] == "0.0101"
+    assert macros["fcIidRtilde"] == "0.047"
+    assert macros["fcLamZeroRtilde"] == "0.0098"
+    assert macros["fcSmearBlurNFive"] == r"21.2\%"
+    assert macros["fcSmearHalfStar"] == r"8.4\%"
+    assert macros["fcSmearBlurNTen"] == r"32.7\%"
+    assert macros["fcSmearStar"] == r"13.2\%"
+    assert macros["fcSmearBlurNTwenty"] == r"46.5\%"
+    assert macros["fcSmearDoubleStar"] == r"18.6\%"
+    assert macros["fcLamZeroSmearFrac"] == r"0.0\%"
+    assert macros["fcPerCellSmearFrac"] == r"2.1\%"
+    assert macros["fcLamZeroNll"] == "-1.7352"
+    assert macros["fcPerCellNll"] == "-1.7194"
+
+
+def test_build_steering_lookup_macros_placeholders_when_absent(tmp_path):
+    m = _load()
+    macros = m.build_steering_lookup_macros(tmp_path)
+    expected = {name for name, _ in m.STEERING_RTILDE_ROWS} \
+        | {name for name, _ in m.STEERING_SMEAR_ROWS} \
+        | {name for name, _ in m.STEERING_NLL_ROWS}
+    assert set(macros) == expected
+    assert all(v == m.PLACEHOLDER for v in macros.values())
+
+
+@needs_fc_converged
+def test_build_era5_roughness_macros_pins_value_and_crosschecks_mode_map():
+    """W1's one computed macro: ERA5's own R~ via scale_free_roughness, pinned
+    to 0.0215 (report_steering_plan.md #1). The builder's mandatory cross-check
+    (mode_map through the identical call == scores.csv's mode_map r_tilde) is
+    re-asserted here directly against the persisted anchor + graph, so this
+    test fails loudly if the convention the ERA5 number relies on ever drifts."""
+    m = _load()
+    macros = m.build_era5_roughness_macros(FC_CONVERGED_RUN, GRAPH_PATH)
+    assert macros["fcEraRtilde"] == "0.0215"
+
+    import numpy as np
+    from sampler_research.graph import scale_free_roughness
+    with np.load(GRAPH_PATH) as f:
+        edges = f["edges"]
+    with np.load(FC_CONVERGED_RUN / "anchors.npz") as f:
+        mode_map = np.asarray(f["mode_map"], dtype=float)
+    mode_map_r_tilde, _ = scale_free_roughness(mode_map, edges)
+    scores_row = m._scores_row(FC_CONVERGED_RUN / "scores.csv", "mode_map")
+    assert abs(mode_map_r_tilde - float(scores_row["r_tilde"])) < 1e-6
+
+
+def test_build_era5_roughness_macros_placeholder_when_absent(tmp_path):
+    m = _load()
+    macros = m.build_era5_roughness_macros(tmp_path, tmp_path / "missing_graph.npz")
+    assert macros == {"fcEraRtilde": m.PLACEHOLDER}

@@ -12,6 +12,13 @@ Writes to outputs/figures/:
   phase_4_spectrum.png           native O96 angular power spectrum C_l vs l
                                  (rung-3 bracket; main-text coherence figure;
                                  + ERA5 direction reference if available)
+  phase_4_lambda_sweep_maps.png  Joint MAP maps for lambda=0 plus the first
+                                 six positive lambda-sweep points, alongside
+                                 the matched Smoothed MAP target when present
+  phase_4_region_maps.png        Figure-5.2 method panels over the Figure-1.1
+                                 North Atlantic / Europe region
+  phase_4_region_lambda_sweep_maps.png
+                                 Lambda-sweep panels over the Figure-1.1 region
   phase_4_bimodal_enrichment.png W1 MUST: dNLL>0.125 enrichment in the audit
                                  S4 bimodal masks + Mollweide dNLL map
   phase_4_robustness.png         unary-gap histogram (why the Mode-selection MRF beta
@@ -23,7 +30,8 @@ Writes to outputs/figures/:
 Figures are generated here (not in notebook 04) so the MUST figure task does
 not depend on notebook execution; the notebook displays these files.
 `--only name [name ...]` regenerates a subset (maps / pareto / variogram /
-enrichment / robustness) without rewriting the other committed PNGs.
+spectrum / lambda_maps / region_maps / region_lambda_maps / enrichment /
+robustness) without rewriting the other committed PNGs.
 """
 
 import argparse
@@ -42,8 +50,11 @@ from sampler_research.io import load_real_marginal
 from sampler_research.plotting import (
     _draw_robinson_coastlines,
     _draw_robinson_frame,
+    _latitude_marker_sizes,
+    _natural_earth_coastline_segments,
     _robinson_project,
     _segment_arrows,
+    _wrap_longitudes,
     display_name,
     field_style,
     plot_mollweide_fields,
@@ -71,6 +82,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 RUN_DIR = REPO_ROOT / "outputs" / "runs" / "phase_4_real"
 FIG_DIR = REPO_ROOT / "outputs" / "figures"
 DATA_NPZ = REPO_ROOT / "outputs" / "data" / "phase_4_real_2t.npz"
+
+# Same North Atlantic / Europe / North Africa crop as Figure 1.1
+# (`scripts/make_hook_figure.py`).
+REGION_LON_MIN, REGION_LON_MAX = -60.0, 40.0
+REGION_LAT_MIN, REGION_LAT_MAX = 20.0, 75.0
 
 
 def _load_rows():
@@ -174,15 +190,15 @@ def _robinson_scatter(ax, latlons, values, title, cmap="viridis", vmin=None, vma
     return sc
 
 
-def fig_maps(latlons, star):
+def _method_map_fields(star):
     fields = {}
     with np.load(RUN_DIR / "anchors.npz") as f:
         fields[display_name("mode_map")] = f["mode_map"]
         fields[display_name("iid_seed0")] = f["iid_seed0"]
+        smoothed_map_n10 = f["smoothed_map_n10"]
     with np.load(RUN_DIR / "method1_sensitivity.npz") as f:
         fields[f"Joint MAP ($\\lambda^\\star$={star['lambda_star']:.0f})"] = f["field_star"]
-    with np.load(RUN_DIR / "anchors.npz") as f:
-        fields["Smoothed MAP (n=10)"] = f["smoothed_map_n10"]
+    fields["Smoothed MAP (n=10)"] = smoothed_map_n10
     m4_path = RUN_DIR / "method4_sweep.npz"
     if m4_path.exists():
         rows = _load_rows()
@@ -197,6 +213,99 @@ def fig_maps(latlons, star):
     if era5_path.exists():
         with np.load(era5_path) as f:
             fields["ERA5 reference"] = f["era5"]
+    return fields
+
+
+def _region_coords(latlons):
+    latlons = np.asarray(latlons, dtype=float)
+    lats = latlons[:, 0]
+    lons = _wrap_longitudes(latlons[:, 1])
+    box = (
+        (lons >= REGION_LON_MIN)
+        & (lons <= REGION_LON_MAX)
+        & (lats >= REGION_LAT_MIN)
+        & (lats <= REGION_LAT_MAX)
+    )
+    if not np.any(box):
+        raise ValueError("Figure-1.1 region contains no grid cells")
+    return box, lons[box], lats[box]
+
+
+def _plot_region_fields(
+    latlons,
+    fields,
+    *,
+    suptitle,
+    figsize,
+    ncols=2,
+    marker_size=14.0,
+    suptitle_y=0.985,
+    top=0.92,
+    hspace=0.13,
+):
+    box, lon_b, lat_b = _region_coords(latlons)
+    field_items = list(fields.items())
+    ncols = min(max(1, int(ncols)), len(field_items))
+    nrows = int(np.ceil(len(field_items) / ncols))
+
+    values_for_scale = np.concatenate([
+        np.asarray(values, dtype=float).reshape(-1)[box] for values in fields.values()
+    ])
+    p2, p98 = np.percentile(values_for_scale, [2, 98])
+    vspan = float(max(abs(p2), abs(p98)))
+    if not np.isfinite(vspan) or vspan == 0.0:
+        vspan = 1.0
+    vmin, vmax = -vspan, vspan
+    aspect = 1.0 / np.cos(np.deg2rad(0.5 * (REGION_LAT_MIN + REGION_LAT_MAX)))
+    marker_sizes = _latitude_marker_sizes(lat_b, base_size=marker_size)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
+    sc = None
+    for idx, (title, values) in enumerate(field_items):
+        row, col = divmod(idx, ncols)
+        ax = axes[row, col]
+        values_b = np.asarray(values, dtype=float).reshape(-1)[box]
+        sc = ax.scatter(
+            lon_b,
+            lat_b,
+            c=values_b,
+            s=marker_sizes,
+            cmap="RdBu_r",
+            vmin=vmin,
+            vmax=vmax,
+            rasterized=True,
+            zorder=2,
+        )
+        for seg_lon, seg_lat in _natural_earth_coastline_segments():
+            ax.plot(seg_lon, seg_lat, color="0.08", lw=0.9, alpha=0.85, zorder=3)
+        ax.set_xlim(REGION_LON_MIN, REGION_LON_MAX)
+        ax.set_ylim(REGION_LAT_MIN, REGION_LAT_MAX)
+        ax.set_aspect(aspect)
+        ax.set_title(title, fontsize=PANEL_TITLE_FONTSIZE, pad=7)
+        ax.set_xticks([])
+        ax.set_yticks([])
+    for ax in axes.reshape(-1)[len(field_items):]:
+        ax.set_visible(False)
+
+    fig.suptitle(suptitle, y=suptitle_y, fontsize=FIG_TITLE_FONTSIZE)
+    fig.subplots_adjust(left=0.02, right=0.90, bottom=0.035, top=top,
+                        wspace=0.06, hspace=hspace)
+    fig.canvas.draw()
+    for row in range(nrows):
+        visible = [ax for ax in axes[row, :] if ax.get_visible()]
+        if not visible:
+            continue
+        panel = visible[-1].get_position()
+        cbar_ax = fig.add_axes([0.915, panel.y0, 0.017, panel.height])
+        cbar = fig.colorbar(sc, cax=cbar_ax, orientation="vertical",
+                            label="2 m temperature (standardised)")
+        cbar.set_label("2 m temperature (standardised)", fontsize=AXIS_LABEL_FONTSIZE)
+        cbar.ax.tick_params(labelsize=TICK_LABEL_FONTSIZE)
+    return fig, axes
+
+
+def fig_maps(latlons, star):
+    fields = _method_map_fields(star)
     regime_title = _display_regime_label(compact=True)
     fig, _ = plot_mollweide_fields(
         latlons, fields,
@@ -206,11 +315,118 @@ def fig_maps(latlons, star):
         colorbar_label="2 m temperature (standardised)",
         colorbar_label_fontsize=AXIS_LABEL_FONTSIZE,
         colorbar_tick_fontsize=TICK_LABEL_FONTSIZE,
+        colorbar_shrink=0.78,
+        ncols=2,
+        row_colorbars=True,
+        figsize=(10.8, 12.0),
+        suptitle_y=0.965,
+        panel_title_pad=4,
+        top=0.93,
+        hspace=0.02,
     )
-    fig.subplots_adjust(left=0.035, right=0.965, bottom=0.06, top=0.84)
     fig.savefig(FIG_DIR / "phase_4_maps.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("wrote phase_4_maps.png")
+
+
+def fig_region_maps(latlons, star):
+    fields = _method_map_fields(star)
+    regime_title = _display_regime_label(compact=True)
+    fig, _ = _plot_region_fields(
+        latlons,
+        fields,
+        suptitle=f"{regime_title}: 2-metre temperature, North Atlantic / Europe",
+        figsize=(10.8, 10.8),
+        top=0.91,
+        hspace=0.18,
+    )
+    fig.savefig(FIG_DIR / "phase_4_region_maps.png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print("wrote phase_4_region_maps.png")
+
+
+def _format_lambda(lam):
+    return f"{float(lam):g}"
+
+
+def _select_lambda_map_indices(lambdas, n_positive=6):
+    """Indices for lambda=0 plus the first positive sweep values, in plot order."""
+
+    lambdas = np.asarray(lambdas, dtype=float)
+    order = np.argsort(lambdas)
+    zero = [idx for idx in order if np.isclose(lambdas[idx], 0.0)]
+    positive = [idx for idx in order if lambdas[idx] > 0.0]
+    selected = zero[:1] + positive[:n_positive]
+    if not selected:
+        raise ValueError("method1_sweep.npz contains no lambda fields")
+    return selected
+
+
+def _lambda_map_fields():
+    with np.load(RUN_DIR / "method1_sweep.npz") as f:
+        lambdas = np.asarray(f["lambdas"], dtype=float)
+        sweep_fields = np.asarray(f["fields"])
+    selected = _select_lambda_map_indices(lambdas, n_positive=6)
+    fields = {
+        f"Joint MAP ($\\lambda={_format_lambda(lambdas[idx])}$)": sweep_fields[idx]
+        for idx in selected
+    }
+    anchors_path = RUN_DIR / "anchors.npz"
+    if anchors_path.exists():
+        with np.load(anchors_path) as f:
+            if "smoothed_map_n10" in f.files:
+                fields["Smoothed MAP ($n=10$ target)"] = f["smoothed_map_n10"]
+    return fields, lambdas, selected
+
+
+def fig_lambda_maps(latlons):
+    fields, lambdas, selected = _lambda_map_fields()
+    regime_title = _display_regime_label(compact=True)
+    fig, _ = plot_mollweide_fields(
+        latlons,
+        fields,
+        suptitle=f"{regime_title}: Joint MAP Lambda Sweep",
+        suptitle_fontsize=FIG_TITLE_FONTSIZE,
+        panel_title_fontsize=PANEL_TITLE_FONTSIZE,
+        colorbar_label="2 m temperature (standardised)",
+        colorbar_label_fontsize=AXIS_LABEL_FONTSIZE,
+        colorbar_tick_fontsize=TICK_LABEL_FONTSIZE,
+        colorbar_shrink=0.78,
+        ncols=2,
+        row_colorbars=True,
+        figsize=(10.8, 15.4),
+        suptitle_y=0.97,
+        panel_title_pad=4,
+        top=0.94,
+        hspace=0.02,
+    )
+    fig.savefig(FIG_DIR / "phase_4_lambda_sweep_maps.png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    selected_lambdas = ", ".join(_format_lambda(lambdas[idx]) for idx in selected)
+    target_suffix = " + smoothed_map_n10 target" if len(fields) > len(selected) else ""
+    print(f"wrote phase_4_lambda_sweep_maps.png (lambdas: {selected_lambdas}{target_suffix})")
+
+
+def fig_region_lambda_maps(latlons):
+    fields, lambdas, selected = _lambda_map_fields()
+    regime_title = _display_regime_label(compact=True)
+    fig, _ = _plot_region_fields(
+        latlons,
+        fields,
+        suptitle=f"{regime_title}: Joint MAP Lambda Sweep, North Atlantic / Europe",
+        figsize=(10.8, 14.2),
+        top=0.93,
+        hspace=0.16,
+    )
+    fig.savefig(FIG_DIR / "phase_4_region_lambda_sweep_maps.png", dpi=300,
+                bbox_inches="tight")
+    plt.close(fig)
+    selected_lambdas = ", ".join(_format_lambda(lambdas[idx]) for idx in selected)
+    target_suffix = " + smoothed_map_n10 target" if len(fields) > len(selected) else ""
+    print(
+        "wrote phase_4_region_lambda_sweep_maps.png "
+        f"(lambdas: {selected_lambdas}{target_suffix})"
+    )
 
 
 def fig_pareto_smear(star):
@@ -429,6 +645,7 @@ def fig_spectrum():
     ax.set_xlim(1, lmax_resolved)
     ax.set_xlabel("Angular degree ($\\ell$)")
     ax.set_ylabel("$C_\\ell$ (normalised power)")
+    ax.legend(fontsize=LEGEND_FONTSIZE)
     fig.savefig(FIG_DIR / "phase_4_spectrum.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("wrote phase_4_spectrum.png" + (" (with ERA5 reference)" if has_era5 else ""))
@@ -461,8 +678,8 @@ def fig_bimodal_enrichment(latlons, star):
     zero_smear = {n: float(np.mean(deltas[n] > 0.125)) == 0 for n in names}
     for offset, (mask, label) in enumerate(
         (
-            (bimodal_1s, f"Bimodal $>1\\sigma$ (Sensitivity, {int(bimodal_1s.sum()):,} cells)"),
-            (bimodal_2s, f"Bimodal $>2\\sigma$ (Headline, {int(bimodal_2s.sum()):,} cells)"),
+            (bimodal_1s, "Bimodal $>1\\sigma$ (Sensitivity)"),
+            (bimodal_2s, "Bimodal $>2\\sigma$ (Headline)"),
         )
     ):
         enrich = []
@@ -491,8 +708,7 @@ def fig_bimodal_enrichment(latlons, star):
     d = deltas["m1_star"]
     sc = _robinson_scatter(
         ax2, latlons, np.log10(np.maximum(d, 1e-6)),
-        "$\\log_{10}$ Off-Mode Cost\n"
-        f"Joint MAP @ $\\lambda^\\star$={star['lambda_star']:.0f}",
+        f"$\\log_{{10}}$ Off-Mode Cost, Joint MAP @ $\\lambda^\\star$={star['lambda_star']:.0f}",
         cmap="viridis", vmin=-4, vmax=1,
     )
     cbar = fig.colorbar(sc, cax=cbar_ax, orientation="vertical",
@@ -587,7 +803,8 @@ def main():
     global RUN_DIR, FIG_DIR, DATA_NPZ
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--only", nargs="*", default=None,
-                        help="subset of {maps, pareto, variogram, spectrum, enrichment, robustness}")
+                        help=("subset of {maps, pareto, variogram, spectrum, lambda_maps, "
+                              "region_maps, region_lambda_maps, enrichment, robustness}"))
     parser.add_argument("--data", type=Path, default=DATA_NPZ,
                         help="real-marginal npz (mirrors run_phase4_real.py --data)")
     parser.add_argument("--out-dir", type=Path, default=RUN_DIR,
@@ -608,6 +825,9 @@ def main():
         "pareto": lambda: fig_pareto_smear(star),
         "variogram": fig_variogram,
         "spectrum": fig_spectrum,
+        "lambda_maps": lambda: fig_lambda_maps(data["latlons"]),
+        "region_maps": lambda: fig_region_maps(data["latlons"], star),
+        "region_lambda_maps": lambda: fig_region_lambda_maps(data["latlons"]),
         "enrichment": lambda: fig_bimodal_enrichment(data["latlons"], star),
         "robustness": lambda: fig_robustness(star),
     }
