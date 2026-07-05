@@ -15,7 +15,7 @@ The boundary is simple:
 
 Everything below is procedure. The full evidence trail for each required change — the failing
 job, the diff, the log line — is recorded in
-[`research_notes/engineering_log.md`](../research_notes/engineering_log.md); this manual links
+the project engineering log; this manual links
 to it rather than repeating it.
 
 ---
@@ -26,7 +26,7 @@ Reproducing the model requires four things that are **not** in this repository:
 
 | Part | What it is | How to access |
 | --- | --- | --- |
-| **WeatherGenerator code, GMM branch** | The foundation weather model (ECMWF), on the branch that adds a Gaussian-mixture prediction head. | Fork the WeatherGenerator repository and check out the GMM branch `sophiex/dev/mae-with-gmms`. This is the branch all runs below were trained on. |
+| **WeatherGenerator code, GMM branch** | The foundation weather model (ECMWF), on the branch that adds a Gaussian-mixture prediction head. | Fork `https://github.com/ecmwf/WeatherGenerator` (project site `https://weathergenerator.eu`) and check out the GMM branch `sophiex/dev/mae-with-gmms`. This is the branch all runs below were trained on. |
 | **WeatherGenerator-private** | HPC platform config: data paths, uenv image, and object-store credentials. Kept private because it holds secrets. | Obtain from the WeatherGenerator maintainers. The only file this manual touches is `hpc/alps-clariden/config/paths.yml`. |
 | **ERA5 store** | The training/validation data (see §2). | Hosted on CSCS `capstor` under the `a122` allocation: `/capstor/store/cscs/swissai/a122/anemoi/aifs-ea-an-oper-0001-mars-o96-1979-2023-6h-v8.zarr`. Requires a CSCS account with access to that allocation. |
 | **Compute** | A GPU node on CSCS Alps **Clariden**. | CSCS account, SLURM account `a122`. Training used one node (`gpu:4`); extraction uses a single GPU. |
@@ -39,7 +39,8 @@ for the sampler.
 
 ## 1. Fork and branch
 
-1. Fork the WeatherGenerator repository.
+1. Fork the WeatherGenerator repository: `https://github.com/ecmwf/WeatherGenerator`
+   (project site `https://weathergenerator.eu`).
 2. Check out the GMM branch: `sophiex/dev/mae-with-gmms`. This branch supplies the
    Gaussian-mixture prediction head (`num_components: 4`) and the `train` console entry point
    used below. All configuration paths in this manual are relative to the WeatherGenerator
@@ -82,7 +83,7 @@ forecast initialisations anywhere in 2023 can be scored without leakage (see the
 
 These are the changes needed to get the GMM head to train and emit on Clariden. They are
 listed here as reproduction steps; each links to the full symptom/root-cause/evidence entry
-in the [engineering log](../research_notes/engineering_log.md). None of them changes the
+in the project engineering log. None of them changes the
 science — they are platform and numerical-plumbing fixes.
 
 ### 3.1 Numerical stability in the GMM loss
@@ -262,5 +263,5 @@ see [`README.md`](../README.md).
 | Forecast run 2 | `gmm_forecast_config.yml` | warm-start from run 1 me5 | +8 mini-epochs | `gmm_fc48_v2` me7 (14-epoch, final) |
 
 All numbers and metric definitions the report quotes from these artifacts have their canonical
-home in [`research_notes/log.md`](../research_notes/log.md); all platform/numerical fixes in
-[`research_notes/engineering_log.md`](../research_notes/engineering_log.md).
+home in the project research log; all platform/numerical fixes in
+the project engineering log.

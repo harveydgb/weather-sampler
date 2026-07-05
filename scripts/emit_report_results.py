@@ -1286,6 +1286,32 @@ def build_era5_roughness_macros(run_dir, graph_path):
     return {"fcEraRtilde": format(era5_r_tilde, ".4f")}
 
 
+def build_budget_point_macros(run_dir):
+    """`budget_point.npz` -> the W3 faithfulness-budget operating point (DEC-R46).
+
+    Reads the artifact written by `scripts/run_budget_point.py` (the single
+    production Method 1 solve at the largest lambda keeping >= 95% of cells
+    within 0.125 nat of their best peak) and emits: `\\fcBudgetLambda` (1 d.p.,
+    matching the lambda* macro precision), `\\fcBudgetSmearFrac` (the achieved
+    off-mode fraction, `fmt_pct`), `\\fcBudgetRtilde` (4 d.p., matching
+    `\\fcEraRtilde`), and the rule constant `\\faithBudgetKeepPct` read from the
+    artifact's own `keep_frac` (never re-typed; DEC-1(c) constants precedent).
+    Missing artifact (fresh clone) -> placeholders."""
+
+    path = Path(run_dir) / "budget_point.npz"
+    keys = ("fcBudgetLambda", "fcBudgetSmearFrac", "fcBudgetRtilde",
+            "faithBudgetKeepPct")
+    if not path.exists():
+        return {k: PLACEHOLDER for k in keys}
+    with np.load(path) as f:
+        return {
+            "fcBudgetLambda": format(float(f["lambda_budget"]), ".1f"),
+            "fcBudgetSmearFrac": fmt_pct(float(f["frac_off"])),
+            "fcBudgetRtilde": format(float(f["r_tilde"]), ".4f"),
+            "faithBudgetKeepPct": format(100.0 * float(f["keep_frac"]), ".0f") + r"\%",
+        }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1404,6 +1430,10 @@ def main():
     macros = {**macros, **build_era5_roughness_macros(
         args.runs_dir / "phase_4_fc48_14ep_step8",
         args.runs_dir / "o96_knn_k8_graph.npz")}
+    # W3/DEC-R46: the faithfulness-budget operating point (lambda~19, >=95%
+    # within 0.125 nat), from the run_budget_point.py artifact.
+    macros = {**macros, **build_budget_point_macros(
+        args.runs_dir / "phase_4_fc48_14ep_step8")}
     tables = {
         "pi_softening.tex": build_pi_softening_table(soft_rows),
         "lambda_calibration.tex": build_lambda_table(lambda_stars, soft_rows),

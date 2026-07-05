@@ -246,13 +246,13 @@ def make_figure(rows, fig_path, ae_anchor=AE_ANCHOR_MAX_PI):
     # marker, distinct from the black star that denotes a* in the Chapter 4 figures.
     ax1.scatter([0.0], [ae_anchor], marker="p", s=230, color="k", zorder=6,
                 label=f"AE Step-0 Anchor ({ae_anchor:.3f})")
-    ax1.set_xlabel("Lead Time (h)", fontsize=label_fs)
+    ax1.set_xlabel("Hours Ahead", fontsize=label_fs)
     ax1.set_ylabel("Mixture Weight", fontsize=label_fs)
-    ax1.set_title("Mixture Weights by Lead", fontsize=panel_title_fs)
+    ax1.set_title("Mixture Weights vs Hours Ahead", fontsize=panel_title_fs)
     ax1.tick_params(labelsize=tick_fs)
     ax1.legend(fontsize=legend_fs)
     ax1.grid(alpha=0.3)
-    ax2.set_xlabel("Lead Time (h)", fontsize=label_fs)
+    ax2.set_xlabel("Hours Ahead", fontsize=label_fs)
     ax2.set_ylabel("Cells with max-$\\pi$ > 0.9 (%)", fontsize=label_fs)
     ax2.set_title("Near-One-Hot Cells", fontsize=panel_title_fs)
     ax2.tick_params(labelsize=tick_fs)

@@ -932,3 +932,29 @@ def test_build_era5_roughness_macros_placeholder_when_absent(tmp_path):
     m = _load()
     macros = m.build_era5_roughness_macros(tmp_path, tmp_path / "missing_graph.npz")
     assert macros == {"fcEraRtilde": m.PLACEHOLDER}
+
+
+def test_build_budget_point_macros_pin_dec_r46_values():
+    """W3's faithfulness-budget operating point (DEC-R46): the single production
+    solve at the largest lambda keeping >= 95% of cells within 0.125 nat of
+    their best peak. Pins the budget_point.npz artifact written by
+    scripts/run_budget_point.py on 5 Jul (lambda 18.99 -> 19.0, achieved
+    off-mode 4.61% within the +-0.5 pp tolerance of the 5% budget,
+    R~ 0.00480). The keep-percent constant is read from the artifact's own
+    keep_frac, never re-typed."""
+    m = _load()
+    macros = m.build_budget_point_macros(FC_CONVERGED_RUN)
+    assert macros == {
+        "fcBudgetLambda": "19.0",
+        "fcBudgetSmearFrac": r"4.6\%",
+        "fcBudgetRtilde": "0.0048",
+        "faithBudgetKeepPct": r"95\%",
+    }
+
+
+def test_build_budget_point_macros_placeholders_when_absent(tmp_path):
+    m = _load()
+    macros = m.build_budget_point_macros(tmp_path)
+    assert set(macros) == {"fcBudgetLambda", "fcBudgetSmearFrac",
+                           "fcBudgetRtilde", "faithBudgetKeepPct"}
+    assert all(v == m.PLACEHOLDER for v in macros.values())

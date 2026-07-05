@@ -199,8 +199,17 @@ def _method_map_fields(star):
     with np.load(RUN_DIR / "method1_sensitivity.npz") as f:
         fields[f"Joint MAP ($\\lambda^\\star$={star['lambda_star']:.0f})"] = f["field_star"]
     fields["Smoothed MAP (n=10)"] = smoothed_map_n10
+    # W3 (DEC-R46): when the faithfulness-budget solve exists for this run, its
+    # panel REPLACES the Mode-selection MRF panel -- at +48h the MRF is
+    # degenerate (every beta returns essentially the Per-cell MAP field, so the
+    # panel duplicates information; the MRF keeps its pareto-smear point and
+    # spectrum curve). Regimes without budget_point.npz keep the MRF panel.
+    budget_path = RUN_DIR / "budget_point.npz"
     m4_path = RUN_DIR / "method4_sweep.npz"
-    if m4_path.exists():
+    if budget_path.exists():
+        with np.load(budget_path) as f:
+            fields[f"Joint MAP ($\\lambda$={float(f['lambda_budget']):.0f})"] = f["field"]
+    elif m4_path.exists():
         rows = _load_rows()
         star_rt = float(next(r for r in rows if r["name"] == "m1_star")["r_tilde"])
         m4_rows = [r for r in rows if r["kind"] == "method4"]
