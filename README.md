@@ -44,7 +44,8 @@ The code is organised by what each part does:
 Python >= 3.10. Runtime dependencies are ducc0, numpy, scipy, matplotlib and pyshp.
 `ducc0` is the open-source spherical-harmonic transform backend for the native O96
 angular power-spectrum diagnostic. `requirements.txt` pins the assessed versions and
-installs the package itself.
+installs the package itself. On platforms without a pre-built ducc0 wheel, installation
+may build ducc0 from source and require a C++17 compiler plus Python development headers.
 
 ## Run the tests
 

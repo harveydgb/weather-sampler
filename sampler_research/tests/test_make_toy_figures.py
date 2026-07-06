@@ -140,11 +140,9 @@ def test_selected_outcomes_use_pareto_knees():
     art = m.load_artifacts()
     panels, selected = m._selected_outcome_panels(art)
     assert [panel[0] for panel in panels] == [
-        "Per-cell MAP",
         "Joint MAP\n($\\lambda^\\star=0.2$)",
         "Mode-selection MRF\n($\\beta^\\star=0.05$)",
         "TV (exact)\n($\\lambda_{\\mathrm{TV}}^\\star=0.1$)",
-        "Smoothed MAP",
     ]
     assert selected["lambda_star"] == pytest.approx(0.2)
     assert selected["beta_star"] == pytest.approx(0.05)

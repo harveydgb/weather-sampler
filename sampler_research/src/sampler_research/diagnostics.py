@@ -324,7 +324,7 @@ def _alm_ducc0(field, layout, lmax):
 
     mmax = lmax
     nalm = (mmax + 1) * (mmax + 2) // 2
-    alm_packed = ducc0.sht.experimental.adjoint_synthesis_general(
+    alm_packed = ducc0.sht.adjoint_synthesis(
         map=flat.reshape(1, -1),
         theta=theta.astype(np.float64),
         nphi=nphi,
