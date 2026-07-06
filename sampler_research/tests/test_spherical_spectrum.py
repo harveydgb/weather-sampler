@@ -1,4 +1,4 @@
-"""Native O96 angular power spectrum C_l -- transform-correctness gate (S6).
+"""O96 angular power spectrum C_l -- transform-correctness gate (S6).
 
 These tests are the correctness oracle for ``sampled_spherical_power_spectrum``
 and its helpers. They run on the REAL O96 latlons (the exactness precondition is
@@ -10,8 +10,8 @@ Coverage (spectrum_era5_plan S6/S9 T9):
   (b) Parseval -- sum_l (2l+1) C_l == 4*pi * Var_w(f) (area-weighted variance);
   (c) bracket ordering -- iid white noise has more high-l power than a smooth
       field (the spectrum reaches the same bracket conclusion as the variogram);
-  (d) engine agreement -- ducc0 vs native agree over the resolved band (ducc0 is
-      a hard dependency, so this does NOT skip).
+  (d) engine agreement -- ducc0 vs native agree over the resolved band;
+  (e) default engine -- public calls without an engine use the ducc0 path.
 """
 
 import numpy as np
@@ -108,7 +108,6 @@ def test_iid_has_more_high_l_power_than_smooth_field():
 
 
 def test_engine_agreement_ducc0_vs_native():
-    pytest.importorskip("ducc0")  # hard dep, but skip rather than error if unbuilt
     latlons = _load_latlons()
     rng = np.random.default_rng(2)
     field = rng.normal(size=latlons.shape[0])
@@ -124,13 +123,28 @@ def test_engine_agreement_ducc0_vs_native():
     assert np.median(rel) < 1e-3, f"median rel disagreement {np.median(rel):.2e}"
 
 
+def test_public_api_default_engine_is_ducc0():
+    latlons = _load_latlons()
+    rng = np.random.default_rng(4)
+    fields = {"f": rng.normal(size=latlons.shape[0])}
+    ell_default, spec_default, lr_default = sampled_spherical_power_spectrum(
+        latlons, fields, normalise=None, lmax_resolved=80
+    )
+    ell_ducc0, spec_ducc0, lr_ducc0 = sampled_spherical_power_spectrum(
+        latlons, fields, engine="ducc0", normalise=None, lmax_resolved=80
+    )
+    assert lr_default == lr_ducc0
+    assert np.array_equal(ell_default, ell_ducc0)
+    assert np.allclose(spec_default["f"], spec_ducc0["f"], rtol=0.0, atol=0.0)
+
+
 def test_public_api_shapes_and_band_power_normalisation():
     latlons = _load_latlons()
     rng = np.random.default_rng(3)
     fields = {"a": rng.normal(size=latlons.shape[0]),
               "b": _real_harmonic(latlons, 8, 3)}
     ell, spectra, lmax_resolved = sampled_spherical_power_spectrum(
-        latlons, fields, engine="native", normalise="band_power"
+        latlons, fields, normalise="band_power"
     )
     assert ell[0] == 1  # monopole dropped
     assert ell[-1] == lmax_resolved

@@ -19,6 +19,9 @@ Writes to outputs/figures/:
                                  North Atlantic / Europe region
   phase_4_region_lambda_sweep_maps.png
                                  Lambda-sweep panels over the Figure-1.1 region
+  phase_4_region_lambda_sweep_maps_localvar_test.png
+                                 EXPERIMENTAL TEST ONLY duplicate using local
+                                 variance R~ annotations for review
   phase_4_bimodal_enrichment.png W1 MUST: dNLL>0.125 enrichment in the audit
                                  S4 bimodal masks + Mollweide dNLL map
   phase_4_robustness.png         unary-gap histogram (why the Mode-selection MRF beta
@@ -30,8 +33,9 @@ Writes to outputs/figures/:
 Figures are generated here (not in notebook 04) so the MUST figure task does
 not depend on notebook execution; the notebook displays these files.
 `--only name [name ...]` regenerates a subset (maps / pareto / variogram /
-spectrum / lambda_maps / region_maps / region_lambda_maps / enrichment /
-robustness) without rewriting the other committed PNGs.
+spectrum / lambda_maps / region_maps / region_lambda_maps /
+region_lambda_maps_localvar_test / enrichment / robustness) without rewriting
+the other committed PNGs.
 """
 
 import argparse
@@ -45,7 +49,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from sampler_research.experimental_local_variance import (
+    TEST_ONLY_NOTICE,
+    build_local_variance_neighborhoods,
+    local_scale_free_roughness,
+)
 from sampler_research.faithfulness import bootstrap_cell_statistic
+from sampler_research.graph import scale_free_roughness
 from sampler_research.io import load_real_marginal
 from sampler_research.plotting import (
     _draw_robinson_coastlines,
@@ -87,6 +97,7 @@ DATA_NPZ = REPO_ROOT / "outputs" / "data" / "phase_4_real_2t.npz"
 # (`scripts/make_hook_figure.py`).
 REGION_LON_MIN, REGION_LON_MAX = -60.0, 40.0
 REGION_LAT_MIN, REGION_LAT_MAX = 20.0, 75.0
+LOCAL_VARIANCE_TEST_RADIUS_GRID_POINTS = 10
 
 
 def _load_rows():
@@ -438,6 +449,131 @@ def fig_region_lambda_maps(latlons):
     )
 
 
+def _load_local_variance_test_graph():
+    with np.load(RUN_DIR / "masks.npz") as f:
+        edges = np.asarray(f["edges"], dtype=np.int64)
+        edge_lengths = (
+            np.asarray(f["edge_arc_km"], dtype=float) if "edge_arc_km" in f.files else None
+        )
+    return edges, edge_lengths
+
+
+def _local_variance_test_fields(latlons, fields):
+    edges, edge_lengths = _load_local_variance_test_graph()
+    neighborhoods = build_local_variance_neighborhoods(
+        latlons,
+        edges,
+        radius_grid_points=LOCAL_VARIANCE_TEST_RADIUS_GRID_POINTS,
+        edge_lengths_km=edge_lengths,
+    )
+    rows = []
+    for title, values in fields.items():
+        local_roughness = local_scale_free_roughness(values, edges, neighborhoods)
+        global_roughness, global_collapsed = scale_free_roughness(values, edges)
+        if local_roughness.variance_collapsed:
+            local_r = "collapsed"
+        else:
+            local_r = f"{local_roughness.r_tilde:.3g}"
+        global_r = "collapsed" if global_collapsed else f"{global_roughness:.3g}"
+        rows.append((title, values, local_r, global_r))
+    return rows, neighborhoods.radius_km
+
+
+def _plot_region_local_global_pairs(latlons, rows, *, suptitle, radius_km):
+    box, lon_b, lat_b = _region_coords(latlons)
+    values_for_scale = np.concatenate([
+        np.asarray(values, dtype=float).reshape(-1)[box] for _, values, _, _ in rows
+    ])
+    p2, p98 = np.percentile(values_for_scale, [2, 98])
+    vspan = float(max(abs(p2), abs(p98)))
+    if not np.isfinite(vspan) or vspan == 0.0:
+        vspan = 1.0
+    vmin, vmax = -vspan, vspan
+    aspect = 1.0 / np.cos(np.deg2rad(0.5 * (REGION_LAT_MIN + REGION_LAT_MAX)))
+    marker_sizes = _latitude_marker_sizes(lat_b, base_size=16.0)
+
+    nrows = len(rows)
+    fig, axes = plt.subplots(nrows, 2, figsize=(15.2, 3.8 * nrows + 2.0), squeeze=False)
+    sc = None
+    coastlines = list(_natural_earth_coastline_segments())
+    for row_idx, (title, values, local_r, global_r) in enumerate(rows):
+        values_b = np.asarray(values, dtype=float).reshape(-1)[box]
+        for col_idx, (metric_label, metric_value) in enumerate((
+            (f"local R~{LOCAL_VARIANCE_TEST_RADIUS_GRID_POINTS}", local_r),
+            ("global R~", global_r),
+        )):
+            ax = axes[row_idx, col_idx]
+            sc = ax.scatter(
+                lon_b,
+                lat_b,
+                c=values_b,
+                s=marker_sizes,
+                cmap="RdBu_r",
+                vmin=vmin,
+                vmax=vmax,
+                rasterized=True,
+                zorder=2,
+            )
+            for seg_lon, seg_lat in coastlines:
+                ax.plot(seg_lon, seg_lat, color="0.08", lw=0.85, alpha=0.85, zorder=3)
+            ax.set_xlim(REGION_LON_MIN, REGION_LON_MAX)
+            ax.set_ylim(REGION_LAT_MIN, REGION_LAT_MAX)
+            ax.set_aspect(aspect)
+            ax.set_anchor("E" if col_idx == 0 else "W")
+            ax.set_title(
+                f"{title}\n{metric_label} = {metric_value}",
+                fontsize=PANEL_TITLE_FONTSIZE,
+                pad=7,
+            )
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+    fig.suptitle(suptitle, y=0.988, fontsize=FIG_TITLE_FONTSIZE)
+    fig.text(0.39, 0.955, "Local Roughness (test)", ha="center", fontsize=13, weight="bold")
+    fig.text(0.61, 0.955, "Global Roughness (production)", ha="center", fontsize=13, weight="bold")
+    fig.subplots_adjust(left=0.06, right=0.86, bottom=0.032, top=0.93, wspace=0.015, hspace=0.38)
+    cbar_ax = fig.add_axes([0.885, 0.08, 0.016, 0.82])
+    cbar = fig.colorbar(sc, cax=cbar_ax, orientation="vertical")
+    cbar.set_label("2 m temperature (standardised)", fontsize=AXIS_LABEL_FONTSIZE)
+    cbar.ax.tick_params(labelsize=TICK_LABEL_FONTSIZE)
+    fig.text(
+        0.02,
+        0.008,
+        f"{TEST_ONLY_NOTICE} Radius = {LOCAL_VARIANCE_TEST_RADIUS_GRID_POINTS} "
+        f"grid points (~{radius_km:.0f} km).",
+        fontsize=8,
+        color="crimson",
+    )
+    return fig
+
+
+def fig_region_lambda_maps_localvar_test(latlons):
+    fields, lambdas, selected = _lambda_map_fields()
+    rows, radius_km = _local_variance_test_fields(latlons, fields)
+    regime_title = _display_regime_label(compact=True)
+    fig = _plot_region_local_global_pairs(
+        latlons,
+        rows,
+        suptitle=(
+            f"{regime_title}: EXPERIMENTAL TEST ONLY Local vs Global Roughness\n"
+            "Left column: local-variance denominator; right column: production global denominator"
+        ),
+        radius_km=radius_km,
+    )
+    fig.savefig(
+        FIG_DIR / "phase_4_region_lambda_sweep_maps_localvar_test.png",
+        dpi=300,
+        bbox_inches="tight",
+    )
+    plt.close(fig)
+    selected_lambdas = ", ".join(_format_lambda(lambdas[idx]) for idx in selected)
+    target_suffix = " + smoothed_map_n10 target" if len(rows) > len(selected) else ""
+    print(
+        "wrote phase_4_region_lambda_sweep_maps_localvar_test.png "
+        f"(lambdas: {selected_lambdas}{target_suffix}; TEST ONLY)"
+    )
+
+
 def fig_pareto_smear(star):
     rows = _load_rows()
     anchors = [r for r in rows if r["kind"] == "anchor"]
@@ -630,13 +766,27 @@ def fig_variogram():
     print("wrote phase_4_variogram.png" + (" (with ERA5 reference)" if has_era5 else ""))
 
 
+# The main-text +48h spectrum shows exactly the methods that appear as panels in
+# fig:fc-maps (W3/DEC-R46), in the same panel order. The two mid-band duplicates
+# (Mixture mean and Mode-selection MRF) are dropped -- at +48h the MRF is
+# degenerate onto Per-cell MAP and neither has a maps panel -- so the coherence
+# figure and the field-maps figure carry an identical method set. Colour encodes
+# method, dash encodes operating point: the two Joint MAP curves (lambda* solid,
+# faithfulness-budget dashed) share the same blue.
+SPECTRUM_CURVES = ("mode_map", "iid_seed0", "m1_star", "smoothed_map_n10",
+                   "m1_budget", "era5")
+
+
 def fig_spectrum():
     """Native O96 angular power spectrum C_l -- main-text coherence figure (S5.4).
 
-    RUNG-3 bracket diagnostic, never a target/validation. Mirrors fig_variogram:
-    loads spectra.npz (written by run_phase4_real.py stage_scores), plots over the
-    Parseval-resolved band, draws any `era5` series as a direction-of-realism
-    reference line. Skips gracefully if spectra.npz is absent (older run dirs).
+    RUNG-3 bracket diagnostic, never a target/validation. Loads spectra.npz
+    (written by run_phase4_real.py stage_scores / stage_spectrum), plots the
+    SPECTRUM_CURVES set over the Parseval-resolved band, and draws the `era5`
+    series as a direction-of-realism reference line. The faithfulness-budget Joint
+    MAP curve is labelled with its solved lambda, single-sourced from
+    budget_point.npz so it matches the maps figure's budget panel exactly. Skips
+    gracefully if spectra.npz is absent (older run dirs).
     """
     spec_path = RUN_DIR / "spectra.npz"
     if not spec_path.exists():
@@ -646,10 +796,21 @@ def fig_spectrum():
     with np.load(spec_path) as f:
         ell = f["ell"]
         lmax_resolved = int(f["lmax_resolved"]) if "lmax_resolved" in f.files else int(ell[-1])
-        spectra = {k: f[k] for k in f.files if k not in ("ell", "lmax_resolved")}
+        available = {k: f[k] for k in f.files if k not in ("ell", "lmax_resolved")}
+    # Select the fig:fc-maps method set, preserving the panel order.
+    spectra = {k: available[k] for k in SPECTRUM_CURVES if k in available}
     has_era5 = "era5" in spectra
+
+    # Match the maps figure's budget-panel label (same lambda, same rounding).
+    labels = {}
+    budget_path = RUN_DIR / "budget_point.npz"
+    if "m1_budget" in spectra and budget_path.exists():
+        with np.load(budget_path) as f:
+            labels["m1_budget"] = f"Joint MAP ($\\lambda$={float(f['lambda_budget']):.0f})"
+
     fig, ax = plot_spectra(ell, spectra,
                            title="Angular power spectrum ($C_\\ell$)",
+                           labels=labels,
                            figsize=(8.0, 4.8))
     ax.set_xlim(1, lmax_resolved)
     ax.set_xlabel("Angular degree ($\\ell$)")
@@ -667,28 +828,28 @@ def fig_bimodal_enrichment(latlons, star):
     with np.load(RUN_DIR / "delta_per_cell.npz") as f:
         deltas = {k: f[k] for k in f.files}
 
-    names = ["iid_seed0", "smoothed_map_n10", "m1_star", "m1_star_double"]
+    names = ["iid_seed0", "smoothed_map_n10", "m1_star"]
     names = [n for n in names if n in deltas]
 
     def bar_tick_label(name):
         return {
             "iid_seed0": "Independent\nDraw",
             "smoothed_map_n10": "Smoothed\nMAP",
-            "m1_star": "Joint\nMAP",
-            "m1_star_double": "Joint MAP\n(2$\\lambda$)",
+            "m1_star": "Joint MAP\n($\\lambda^\\star$)",
             "m4_beta1": "Mode-selection\nMRF",
         }.get(name, display_name(name).replace(" ", "\n"))
 
-    fig = plt.figure(figsize=(13.2, 4.95))
-    grid = fig.add_gridspec(1, 3, width_ratios=[1.0, 1.18, 0.045], wspace=0.28)
+    panel_title_size = PANEL_TITLE_FONTSIZE + 1.5
+    fig = plt.figure(figsize=(13.6, 5.7))
+    grid = fig.add_gridspec(1, 3, width_ratios=[0.82, 1.72, 0.045], wspace=0.10)
     ax1 = fig.add_subplot(grid[0, 0])
     width = 0.35
     xs = np.arange(len(names))
     zero_smear = {n: float(np.mean(deltas[n] > 0.125)) == 0 for n in names}
     for offset, (mask, label) in enumerate(
         (
-            (bimodal_1s, "Bimodal $>1\\sigma$ (Sensitivity)"),
-            (bimodal_2s, "Bimodal $>2\\sigma$ (Headline)"),
+            (bimodal_1s, "Bimodal $>1\\sigma$"),
+            (bimodal_2s, "Bimodal $>2\\sigma$"),
         )
     ):
         enrich = []
@@ -705,11 +866,11 @@ def fig_bimodal_enrichment(latlons, star):
                      fontsize=8, color="grey", style="italic")
     ax1.set_xticks(xs)
     ax1.set_xticklabels([bar_tick_label(n) for n in names], rotation=0,
-                        ha="center", fontsize=9)
+                        ha="center", fontsize=12)
     ax1.tick_params(axis="x", pad=4)
     ax1.tick_params(axis="y", labelsize=TICK_LABEL_FONTSIZE)
     ax1.set_ylabel("Enrichment ratio", fontsize=AXIS_LABEL_FONTSIZE)
-    ax1.set_title("Off-Mode Enrichment by Bimodal Class", fontsize=PANEL_TITLE_FONTSIZE)
+    ax1.set_title("Off-Mode Enrichment by Bimodal Class", fontsize=panel_title_size)
     ax1.legend(fontsize=LEGEND_FONTSIZE)
 
     ax2 = fig.add_subplot(grid[0, 1])
@@ -720,6 +881,7 @@ def fig_bimodal_enrichment(latlons, star):
         f"$\\log_{{10}}$ Off-Mode Cost, Joint MAP @ $\\lambda^\\star$={star['lambda_star']:.0f}",
         cmap="viridis", vmin=-4, vmax=1,
     )
+    ax2.set_title(ax2.get_title(), fontsize=panel_title_size, pad=10)
     cbar = fig.colorbar(sc, cax=cbar_ax, orientation="vertical",
                         label="$\\log_{10}$ $\\Delta$NLL")
     cbar.set_label("$\\log_{10}$ $\\Delta$NLL", fontsize=AXIS_LABEL_FONTSIZE)
@@ -727,7 +889,7 @@ def fig_bimodal_enrichment(latlons, star):
 
     regime_title = _display_regime_label()
     fig.suptitle(regime_title, fontsize=FIG_TITLE_FONTSIZE, y=0.98)
-    fig.subplots_adjust(left=0.06, right=0.965, bottom=0.17, top=0.80)
+    fig.subplots_adjust(left=0.055, right=0.965, bottom=0.10, top=0.86)
     fig.savefig(FIG_DIR / "phase_4_bimodal_enrichment.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("wrote phase_4_bimodal_enrichment.png")
@@ -813,7 +975,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--only", nargs="*", default=None,
                         help=("subset of {maps, pareto, variogram, spectrum, lambda_maps, "
-                              "region_maps, region_lambda_maps, enrichment, robustness}"))
+                              "region_maps, region_lambda_maps, "
+                              "region_lambda_maps_localvar_test, enrichment, robustness}"))
     parser.add_argument("--data", type=Path, default=DATA_NPZ,
                         help="real-marginal npz (mirrors run_phase4_real.py --data)")
     parser.add_argument("--out-dir", type=Path, default=RUN_DIR,
@@ -837,6 +1000,9 @@ def main():
         "lambda_maps": lambda: fig_lambda_maps(data["latlons"]),
         "region_maps": lambda: fig_region_maps(data["latlons"], star),
         "region_lambda_maps": lambda: fig_region_lambda_maps(data["latlons"]),
+        "region_lambda_maps_localvar_test": lambda: fig_region_lambda_maps_localvar_test(
+            data["latlons"]
+        ),
         "enrichment": lambda: fig_bimodal_enrichment(data["latlons"], star),
         "robustness": lambda: fig_robustness(star),
     }

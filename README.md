@@ -41,9 +41,10 @@ The code is organised by what each part does:
     python -m pip install -U pip
     python -m pip install -r requirements.txt
 
-Python ≥ 3.10. Runtime dependencies are numpy, scipy, matplotlib and pyshp — all pure-wheel, no
-system libraries required. `requirements.txt` pins the assessed versions and installs the
-package itself.
+Python >= 3.10. Runtime dependencies are ducc0, numpy, scipy, matplotlib and pyshp.
+`ducc0` is the open-source spherical-harmonic transform backend for the native O96
+angular power-spectrum diagnostic. `requirements.txt` pins the assessed versions and
+installs the package itself.
 
 ## Run the tests
 

@@ -17,6 +17,10 @@ needs_fc_spectra = pytest.mark.skipif(
     not (FC_CONVERGED_RUN / "spectra.npz").exists(),
     reason="converged +48h spectra artifact absent",
 )
+needs_fc_budget = pytest.mark.skipif(
+    not (FC_CONVERGED_RUN / "budget_point.npz").exists(),
+    reason="converged +48h budget-point artifact absent",
+)
 
 
 def _load():
@@ -113,7 +117,7 @@ def test_tables_render_rows_and_dagger():
     # DEC-R28 (3 Jul): the PIT-KS columns are dropped too — CRPS and PIT-KS are out
     # of the report; only the central marginal-position coverage is tabulated.
     assert r"marg.-pos." in faith_tbl and "M1" not in faith_tbl
-    assert "0.910" in faith_tbl and "0.880" in faith_tbl   # cov90 (6ep, 14ep)
+    assert r"91.0\%" in faith_tbl and r"88.0\%" in faith_tbl   # cov90 (6ep, 14ep)
     assert "PIT KS" not in faith_tbl                        # no PIT-KS columns
     assert "0.050" not in faith_tbl and "0.070" not in faith_tbl
     assert "-0.004" not in faith_tbl and "+0.002" not in faith_tbl  # no ΔCRPS column
@@ -262,7 +266,7 @@ def test_build_faithfulness_spread_macros_emits_headline_range():
     assert macros["forecastLambdaStarConvergedMean"] == "84.0"
     assert macros["forecastLambdaStarConvergedLo"] == "81.3"
     assert macros["forecastLambdaStarConvergedHi"] == "88.0"
-    assert macros["mOneCovNinetyConvergedHi"] == "0.990"
+    assert macros["mOneCovNinetyConvergedHi"] == r"99.0\%"
     assert macros["mOnePitKsConvergedLo"] == "0.305"
     assert macros["deltaCrpsConvergedMean"].startswith(("+", "-"))  # signed delta
     assert macros["faithfulnessNInits"] == "3"
@@ -358,8 +362,8 @@ def test_build_comparison_gap_macros_emits_mean_and_range():
     assert macros["gapNllFortyEightConvergedMean"] == "-0.114"   # negative = M1 wins
     assert macros["gapNllFortyEightConvergedLo"] == "-0.130"
     assert macros["gapNllFortyEightConvergedHi"] == "-0.100"
-    assert macros["gapSmearFortyEightConvergedMean"] == "-0.195"
-    assert macros["gapSmearSixHourConvergedMean"] == "-0.030"
+    assert macros["gapSmearFortyEightConvergedMean"] == r"-19.5\,pp"
+    assert macros["gapSmearSixHourConvergedMean"] == r"-3.0\,pp"
     assert macros["comparisonNInits"] == "3"
 
 
@@ -379,7 +383,7 @@ def test_tables_ignore_init_mean_rows():
     assert "0.766" in pi_tbl          # init A +48h conv. point
     assert "0.769" not in pi_tbl      # the 3-init mean must NOT appear in the table
     faith_tbl = m.build_faithfulness_table(FAITH + FAITH_MEAN, SOFT + SOFT_MEAN)
-    assert "0.88" in faith_tbl        # init A cov90 point (0.88), not mean 0.989
+    assert r"88.0\%" in faith_tbl     # init A cov90 point (0.88), not mean 0.989 (98.9\%)
 
 
 def test_spread_macros_placeholder_when_no_aggregate():
@@ -934,6 +938,7 @@ def test_build_era5_roughness_macros_placeholder_when_absent(tmp_path):
     assert macros == {"fcEraRtilde": m.PLACEHOLDER}
 
 
+@needs_fc_budget
 def test_build_budget_point_macros_pin_dec_r46_values():
     """W3's faithfulness-budget operating point (DEC-R46): the single production
     solve at the largest lambda keeping >= 95% of cells within 0.125 nat of

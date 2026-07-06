@@ -19,6 +19,11 @@ old notebook exports so the report no longer depends on notebook execution
       TV (Adam) arm is omitted from this main-text figure (it fails its own
       min-cut optimality certificate below lambda=0.2 and is dominated); it
       remains a pipeline quantity available for Appendix F.
+  phase_2_selected_outcomes_homoscedastic.png
+      Field maps at the selected operating points from the main-text
+      faithfulness-coherence plane: Joint MAP at lambda*, Mode-selection MRF at
+      beta*, and exact TV at lambda_TV* in the same panel style as
+      phase_2_stage_a_baselines.png.
   phase_2_stage_bc_pareto_homoscedastic.png
       Appendix full-sweep plane: every swept Joint MAP (lambda) and
       Mode-selection MRF (beta) configuration against the Stage A anchors,
@@ -638,6 +643,96 @@ def fig_stage_a_baselines(art, fig_dir=FIG_DIR):
     return out
 
 
+def _format_param(value):
+    """Compact parameter label matching the sweep labels."""
+
+    return f"{float(value):g}"
+
+
+def _selected_outcome_panels(art):
+    """Fields at the operating points selected on the toy Pareto plane.
+
+    The best indices intentionally use the same `_knee_index` calls as
+    `fig_pareto_plane`, so the field figure cannot drift from the labelled
+    lambda*/beta*/lambda_TV* points in that plane.
+    """
+
+    B, C, T = art["B"], art["C"], art["T"]
+
+    b_best = _knee_index(B["r_tilde"], B["nll_over_n"])
+    c_best = _knee_index(C["r_tilde"], C["nll_over_n"])
+
+    collapsed = np.array([
+        str(row["variance_collapsed"]).lower() == "true"
+        for row in art["rows_cut"]
+    ])
+    visible_cut_indices = np.flatnonzero(~collapsed)
+    cut_r = T["cut_tv_r_tilde"][visible_cut_indices]
+    cut_nll = T["cut_tv_nll_over_n"][visible_cut_indices]
+    cut_best = visible_cut_indices[_knee_index(cut_r, cut_nll)]
+
+    selected = {
+        "lambda_star": float(B["lambdas"][b_best]),
+        "beta_star": float(C["betas"][c_best]),
+        "lambda_tv_star": float(T["cut_tv_lambdas"][cut_best]),
+    }
+    panels = [
+        (
+            f"Joint MAP\n($\\lambda^\\star={_format_param(selected['lambda_star'])}$)",
+            B["fields"][b_best],
+            float(B["nll_over_n"][b_best]),
+            float(B["r_tilde"][b_best]),
+        ),
+        (
+            f"Mode-selection MRF\n($\\beta^\\star={_format_param(selected['beta_star'])}$)",
+            C["fields"][c_best],
+            float(C["nll_over_n"][c_best]),
+            float(C["r_tilde"][c_best]),
+        ),
+        (
+            "TV (exact)\n"
+            f"($\\lambda_{{\\mathrm{{TV}}}}^\\star="
+            f"{_format_param(selected['lambda_tv_star'])}$)",
+            T["cut_tv_fields"][cut_best],
+            float(T["cut_tv_nll_over_n"][cut_best]),
+            float(T["cut_tv_r_tilde"][cut_best]),
+        ),
+    ]
+    return panels, selected
+
+
+def fig_selected_outcomes(art, fig_dir=FIG_DIR):
+    """Selected operating-point fields -> phase_2_selected_outcomes_homoscedastic.png."""
+
+    panels, _selected = _selected_outcome_panels(art)
+    stacked = np.concatenate([
+        np.asarray(field).reshape(-1) for _label, field, _nll, _rt in panels
+    ])
+    vmin, vmax = np.percentile(stacked, [1, 99])
+
+    fig, axes = plt.subplots(1, len(panels), figsize=(3.5 * len(panels), 4.2))
+    im = None
+    for ax, (label, field, nll_over_n, r_tilde) in zip(axes, panels):
+        im = ax.imshow(field, origin="lower", cmap="viridis", vmin=vmin, vmax=vmax)
+        ax.set_title(label, fontsize=17)
+        ax.set_xlabel(
+            f"NLL/$N$={nll_over_n:.3f}   $\\tilde{{R}}$={r_tilde:.3f}",
+            fontsize=15,
+            fontweight="bold",
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+    fig.tight_layout()
+    _colorbar_matched_to_row(fig, axes, im)
+
+    out = Path(fig_dir) / "phase_2_selected_outcomes_homoscedastic.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"wrote {out.name}")
+    return out
+
+
 # name -> (loader, fig_fn). Every loader shares the (runs_dir, data_dir) call
 # signature (`load_component_fields` ignores `runs_dir`) so `main` can call
 # whichever loader a figure needs without special-casing it, and so a figure
@@ -649,6 +744,7 @@ FIGURES = {
     "fullplane": (load_artifacts, fig_full_plane),
     "components": (load_component_fields, fig_component_fields),
     "baselines": (load_artifacts, fig_stage_a_baselines),
+    "selected": (load_artifacts, fig_selected_outcomes),
 }
 
 

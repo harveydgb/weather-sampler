@@ -99,7 +99,7 @@ def sampled_spherical_variogram(
 
 
 # --------------------------------------------------------------------------- #
-# Native angular power spectrum C_l on the O96 reduced-Gaussian sphere.
+# Angular power spectrum C_l on the O96 reduced-Gaussian sphere.
 #
 # RUNG-3 BRACKET DIAGNOSTIC ONLY. There is no GMM-derivable *target* spectrum
 # (large_notes.md open problem ~S312): the decoder emits independent per-location
@@ -109,11 +109,10 @@ def sampled_spherical_variogram(
 # between, and below iid at high l) -- never an optimisation target, never
 # validation. See research_notes/plans/spectrum_era5_plan.md.
 #
-# The transform is EXACT on this grid (audit S5 geometry): each O96 ring is
-# uniformly spaced in longitude (per-ring DFT exact) and the 192 rings sit on
-# Gaussian latitudes (Gauss-Legendre quadrature exact). We therefore transform
-# natively and never regrid to lat-lon (a regrid low-passes the high-l tail,
-# the band of interest).
+# The ducc0 engine applies the spherical-harmonic analysis on the native O96
+# iso-latitude rings. We never regrid to lat-lon because a regrid would low-pass
+# the high-l tail, the band of interest. The pure-numpy native engine is kept as
+# an explicit cross-check, not as the default report path.
 # --------------------------------------------------------------------------- #
 
 #: Nominal angular-degree ceiling for the O96 octahedral grid (linear T_L191
@@ -368,18 +367,18 @@ def sampled_spherical_power_spectrum(
     lmax=None,
     remove_monopole=True,
     normalise="band_power",
-    engine="native",
+    engine="ducc0",
     lmax_resolved=None,
     parseval_tol=0.01,
 ):
-    """Native angular power spectrum C_l on the O96 reduced-Gaussian sphere.
+    """Angular power spectrum C_l on the O96 reduced-Gaussian sphere.
 
-    Exact transform, NO lat-lon regrid (audit S5): per-ring longitude DFT (uniform
-    ring spacing -> exact) then Gauss-Legendre latitude projection over the 192
-    Gaussian-latitude rings. RUNG-3 bracket diagnostic only -- there is no
-    GMM-derivable target spectrum (large_notes ~S312). Not an optimisation
-    target, not validation; the ERA5 reference (added by the caller as an extra
-    series) is a direction-of-realism reference, never a target.
+    Uses the open-source ducc0 spherical-harmonic transform on the native O96
+    reduced-Gaussian rings by default, with NO lat-lon regrid. RUNG-3 bracket
+    diagnostic only -- there is no GMM-derivable target spectrum (large_notes
+    ~S312). Not an optimisation target, not validation; the ERA5 reference
+    (added by the caller as an extra series) is a direction-of-realism reference,
+    never a target.
 
     Parameters
     ----------
@@ -398,13 +397,12 @@ def sampled_spherical_power_spectrum(
         ``"band_power"`` divides each C_l by its sum over the resolved band
         (unit resolved-band power; shape-only). ``None`` keeps raw C_l.
     engine : {"native", "ducc0", "auto"}
-        Transform backend. ``"native"`` (default) is the pure-numpy exact SHT and
-        carries no extra dependency; ``"ducc0"`` is the faster C++ SHT (optional
-        ``spectrum`` extra; not available on every platform -- e.g. it needs a
-        compiled wheel/toolchain); ``"auto"`` uses ducc0 if importable else native.
-        The two engines are validated to agree to < 1e-3 over the resolved band
-        (test_spherical_spectrum.py), with the native round-trip + Parseval checks
-        as the mandatory-blocking correctness gate.
+        Transform backend. ``"ducc0"`` (default) is the required open-source C++
+        SHT library used for reported spectra; ``"native"`` is the pure-numpy
+        cross-check engine; ``"auto"`` uses ducc0 if importable else native. The
+        two engines are validated to agree to < 1e-3 over the resolved band
+        (test_spherical_spectrum.py), with native round-trip and Parseval checks
+        retained as correctness gates.
     lmax_resolved : int, optional
         Force the resolved-band ceiling. Default: empirical -- the largest l for
         which the Parseval identity ``sum_l (2l+1) C_l ~= 4*pi*Var_w(f)`` holds to

@@ -119,6 +119,38 @@ def test_stage_a_baselines_figure_renders(tmp_path):
     assert out.exists() and out.stat().st_size > 0
 
 
+@needs_toy
+@needs_stage_runs
+def test_selected_outcomes_figure_renders(tmp_path):
+    """Selected operating-point fields render from the same persisted sweeps
+    used by the Pareto-plane figure."""
+    m = _load()
+    art = m.load_artifacts()
+    out = m.fig_selected_outcomes(art, tmp_path)
+    assert out.name == "phase_2_selected_outcomes_homoscedastic.png"
+    assert out.exists() and out.stat().st_size > 0
+
+
+@needs_toy
+@needs_stage_runs
+def test_selected_outcomes_use_pareto_knees():
+    """The selected field panels use the same lambda*/beta*/lambda_TV* knees
+    labelled on the main-text faithfulness-coherence plane."""
+    m = _load()
+    art = m.load_artifacts()
+    panels, selected = m._selected_outcome_panels(art)
+    assert [panel[0] for panel in panels] == [
+        "Per-cell MAP",
+        "Joint MAP\n($\\lambda^\\star=0.2$)",
+        "Mode-selection MRF\n($\\beta^\\star=0.05$)",
+        "TV (exact)\n($\\lambda_{\\mathrm{TV}}^\\star=0.1$)",
+        "Smoothed MAP",
+    ]
+    assert selected["lambda_star"] == pytest.approx(0.2)
+    assert selected["beta_star"] == pytest.approx(0.05)
+    assert selected["lambda_tv_star"] == pytest.approx(0.1)
+
+
 TOY_BASELINES_TABLE = REPO_ROOT / "report" / "construction" / "tables" / "toy_baselines.tex"
 
 

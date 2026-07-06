@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SRC="$(cd "$(dirname "$0")/.." && pwd)"
+DEST="${1:-$SRC/../weather_sampler}"
+mkdir -p "$DEST"
+
+COMMON_EXCL=(--exclude='__pycache__/' --exclude='*.pyc' --exclude='*.egg-info/'
+  --exclude='.pytest_cache/' --exclude='.ruff_cache/' --exclude='.mypy_cache/'
+  --exclude='.ipynb_checkpoints/')
+
+# library (src + tests)
+rsync -a --delete "${COMMON_EXCL[@]}" "$SRC/sampler_research/" "$DEST/sampler_research/"
+# scripts, minus the 3 dev throwaways
+rsync -a --delete "${COMMON_EXCL[@]}" \
+  --exclude='check_threshold_sensitivity.py' \
+  --exclude='check_deep_tail_decomp.py' \
+  --exclude='real_output_diagnostics.py' \
+  "$SRC/scripts/" "$DEST/scripts/"
+rsync -a --delete "${COMMON_EXCL[@]}" "$SRC/notebooks/" "$DEST/notebooks/"
+rsync -a --delete "$SRC/docs/" "$DEST/docs/"
+
+# top-level single files
+cp "$SRC/README.md" "$SRC/pyproject.toml" "$SRC/requirements.txt" "$SRC/.gitignore" "$DEST/"
+cp "$SRC/Makefile.submission" "$DEST/Makefile"
+[ -f "$SRC/LICENSE" ] && cp "$SRC/LICENSE" "$DEST/"
+if [ -f "$SRC/.github/workflows/ci.yml" ]; then
+  mkdir -p "$DEST/.github/workflows"; cp "$SRC/.github/workflows/ci.yml" "$DEST/.github/workflows/"
+fi
+
+# report: PDFs only
+mkdir -p "$DEST/report"
+cp "$SRC/report/thesis.pdf" "$SRC/report/summary.pdf" "$DEST/report/"
+
+# outputs: data README + coastlines + curated figures
+mkdir -p "$DEST/outputs/data" "$DEST/outputs/figures"
+[ -f "$SRC/outputs/data/README.md" ] && cp "$SRC/outputs/data/README.md" "$DEST/outputs/data/"
+rsync -a "$SRC/outputs/data/natural_earth/" "$DEST/outputs/data/natural_earth/"
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in \#*) continue;; esac
+  mkdir -p "$DEST/outputs/figures/$(dirname "$f")"
+  cp "$SRC/outputs/figures/$f" "$DEST/outputs/figures/$f"
+done < "$SRC/submission_figures.txt"
+
+echo "Export complete -> $DEST"
+echo "This script ran NO git. Hand off to Harvey for git init/commit/push."

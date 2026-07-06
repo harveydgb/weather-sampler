@@ -83,7 +83,10 @@ _FIELD_STYLE = {
     "smoothed_map_n20": ("black", "o", ":"),
     "mixture_mean": ("black", "D", "-"),         # over-smooth extreme (lower)
     "a_star": ("black", "*", "--"),              # smoothest-faithful bracket
-    "m1_star": ("C0", "o", "-"),                 # Joint MAP @ lambda*
+    "m1_star": ("C0", "o", "-"),                 # Joint MAP @ lambda* (solid)
+    "m1_budget": ("C0", "o", "--"),              # Joint MAP @ faithfulness budget
+    #                                              (same blue as lambda*; DASHED
+    #                                              distinguishes the operating point)
     "m1_star_half": ("C9", "o", "-"),            # Joint MAP @ half lambda*
     "m1_star_double": ("C4", "o", "-"),          # Joint MAP @ 2x lambda*
     "m4_beta1": ("C2", "o", "-"),                # Mode-selection MRF @ beta=1
@@ -117,6 +120,7 @@ _SPECTRUM_LINESTYLE = {
     "mode_map": "--",
     "mixture_mean": "-.",
     "m4_beta1": ":",
+    "smoothed_map_n10": "-",
 }
 
 # Canonical DISPLAY names: ONE source of truth for every legend label AND the
@@ -197,7 +201,8 @@ def plot_variograms(
     return fig, ax
 
 
-def plot_spectra(ell, spectra, *, title, era5_key=ERA5_KEY, figsize=(6.5, 3.8)):
+def plot_spectra(ell, spectra, *, title, era5_key=ERA5_KEY, labels=None,
+                 figsize=(6.5, 3.8)):
     """Linear-x/log-y angular power spectrum C_l vs degree l for the headline fields.
 
     RUNG-3 BRACKET DIAGNOSTIC (not a skill metric, not an optimisation target):
@@ -207,21 +212,28 @@ def plot_spectra(ell, spectra, *, title, era5_key=ERA5_KEY, figsize=(6.5, 3.8)):
     dashed reference line LAST -- direction-of-realism only, never a target. There
     is no GMM-derivable target spectrum (large_notes open problem). Returns
     ``(fig, ax)``.
+
+    ``labels`` optionally overrides the legend text for specific keys (e.g. a
+    parametrised ``Joint MAP (lambda=19)`` built at call time from the artifact),
+    so a series can carry the same dynamic label as its panel in another figure
+    without hard-coding it into ``DISPLAY_NAME``.
     """
     import matplotlib.pyplot as plt
 
+    labels = labels or {}
     fig, ax = plt.subplots(figsize=figsize)
     for idx, (label, values) in enumerate(_ordered_items(spectra)):
-        colour, marker, ls = field_style(label, idx)
+        colour, _marker, ls = field_style(label, idx)
         colour = _SPECTRUM_COLOUR.get(label, colour)
         ls = _SPECTRUM_LINESTYLE.get(label, ls)
-        marker = "o"
+        # Plain lines (no per-point markers): colour encodes method, dash encodes
+        # operating point; markers only crowd the ~191-point resolved band.
         if label == era5_key:
-            ax.plot(ell, values, marker=marker, ls=ls, color=colour, lw=1.0,
-                    ms=2.4, label="ERA5 (reference)")
+            ax.plot(ell, values, ls=ls, color=colour, lw=2.6,
+                    label=labels.get(label, "ERA5 (reference)"))
         else:
-            ax.plot(ell, values, marker=marker, ls=ls, color=colour,
-                    ms=2.8, lw=1.4, label=display_name(label))
+            ax.plot(ell, values, ls=ls, color=colour, lw=2.2,
+                    label=labels.get(label, display_name(label)))
     ax.set_xscale("linear")
     ax.set_yscale("log")
     ax.set_xlabel("angular degree $\\ell$")

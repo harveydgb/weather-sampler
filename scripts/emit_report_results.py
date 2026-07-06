@@ -301,8 +301,8 @@ def build_faithfulness_table(faith_rows, soft_rows):
     for step in steps:
         f6, f14 = faith.get(("6ep", step)), faith.get(("14ep", step))
         cells = [
-            fmt_cov(f6["m1_star_cov90"]) if f6 else PLACEHOLDER,
-            fmt_cov(f14["m1_star_cov90"]) if f14 else PLACEHOLDER,
+            fmt_pct(f6["m1_star_cov90"]) if f6 else PLACEHOLDER,
+            fmt_pct(f14["m1_star_cov90"]) if f14 else PLACEHOLDER,
         ]
         body.append(f"{_lead_label(step, soft_rows)} & " + " & ".join(cells) + r" \\")
     tail = [
@@ -748,7 +748,10 @@ def build_faithfulness_spread_macros(faith_rows):
     _mean_lo_hi(macros, "deltaCrpsConverged", row, "iid_delta_crps", fmt_delta)
     # Macro bases must be letters-only: LaTeX \newcommand names cannot contain
     # digits, so "m1Cov90"->"mOneCovNinety" and "m1PitKs"->"mOnePitKs".
-    _mean_lo_hi(macros, "mOneCovNinetyConverged", row, "m1_star_cov90", fmt_cov)
+    # Coverage is a share of cells (DEC-R40 precedent: shares of cells -> fmt_pct,
+    # differences of shares -> fmt_pp), so this repoints from the bare fmt_cov
+    # decimal to fmt_pct (harvey, 6 Jul).
+    _mean_lo_hi(macros, "mOneCovNinetyConverged", row, "m1_star_cov90", fmt_pct)
     _mean_lo_hi(macros, "mOnePitKsConverged", row, "m1_star_pit_ks", fmt_cov)
     macros["faithfulnessNInits"] = (
         str(int(row["n_inits"])) if row and row.get("n_inits") else PLACEHOLDER
@@ -806,8 +809,12 @@ def build_crps_extremum_macros(faith_rows):
 # 29-Jun log values exactly (0.054 decades; ~199x).
 SPECTRUM_LARGE_ELL = 10   # "large scales": low-ell band the C1 cut-check averages over
 SPECTRUM_FINE_ELL = 96    # "fine scales": high-ell band (>= O96 ring-Nyquist) for the ratio
-SPECTRUM_FIELDS = ("iid_seed0", "mode_map", "mixture_mean",
-                   "smoothed_map_n10", "m1_star", "m4_beta1")
+# The fields plotted in fig:spectrum (== the six panels of fig:fc-maps, 6 Jul):
+# mixture_mean and m4_beta1 (ModeMRF) were dropped from the figure and m1_budget
+# (the lambda=19 budget curve) added, so "every field agrees within X of a decade"
+# ranges over exactly the plotted set. The decade max is m1_star either way (0.054).
+SPECTRUM_FIELDS = ("iid_seed0", "mode_map", "smoothed_map_n10",
+                   "m1_star", "m1_budget")
 
 
 def build_spectrum_macros(runs_dir):
@@ -888,7 +895,10 @@ def build_comparison_gap_macros(gap_means):
         if row is not None and n_inits is None:
             n_inits = row.get("n_inits")
         _mean_lo_hi(macros, f"gapNll{hour}Converged", row, "gap_nll", fmt_delta)
-        _mean_lo_hi(macros, f"gapSmear{hour}Converged", row, "gap_smear", fmt_delta)
+        # gap_smear is a difference between two off-mode cell-shares, so it gets
+        # the DEC-R40 fmt_pp (percentage-point) unit; gap_nll names NLL/N and
+        # stays a bare signed decimal by decision (harvey, 6 Jul).
+        _mean_lo_hi(macros, f"gapSmear{hour}Converged", row, "gap_smear", fmt_pp)
     macros["comparisonNInits"] = str(int(n_inits)) if n_inits else PLACEHOLDER
     return macros
 

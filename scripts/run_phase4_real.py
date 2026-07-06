@@ -17,6 +17,10 @@ Stages (separately invokable; later stages load earlier artifacts):
   m4      -> method4_sweep.npz (value-space MRF beta sweep; SHOULD)
   scores  -> delta_per_cell.npz + scores.csv/.md + variograms.npz + spectra.npz
              (native O96 angular power spectrum, rung-3 bracket) + timings.json
+  spectrum-> spectra.npz ONLY, from the persisted method fields (opt-in, not in
+             the default run): refreshes the angular power spectrum's curve set
+             -- e.g. picking up the W3 faithfulness-budget curve once
+             budget_point.npz exists -- without re-scoring or resampling variograms
 
 `--lambda-star` applies the S6 roughness-matching rule to the persisted sweep
 (target = smoothed-MAP n_iters=10 R-tilde), extends the sweep decade-by-decade
@@ -75,7 +79,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_NPZ = REPO_ROOT / "outputs" / "data" / "phase_4_real_2t.npz"
 RUN_DIR = REPO_ROOT / "outputs" / "runs" / "phase_4_real"
 
-STAGES = ("graph", "anchors", "modes", "m1", "m4", "scores")
+# The default full-run pipeline. `spectrum` is an extra, opt-in stage (not in the
+# default) that regenerates ONLY spectra.npz from the persisted method fields --
+# used to refresh the angular power spectrum's curve set (e.g. adding the W3
+# faithfulness-budget curve) without re-scoring or re-sampling the variograms.
+DEFAULT_STAGES = ("graph", "anchors", "modes", "m1", "m4", "scores")
+STAGES = DEFAULT_STAGES + ("spectrum",)
 
 # Updated phase_4_plan S5 grid (log-spaced through the verified target region).
 LAMBDA_GRID = (0.0, 0.5, 2.0, 8.0, 30.0, 100.0, 300.0, 1000.0)
@@ -675,6 +684,96 @@ def _maybe_load_era5_reference(regime, latlons, out_dir, args):
         return None
 
 
+# Headline field set shared by the variogram and the spectrum: the iid/MAP/mean
+# baselines, the Joint MAP at lambda*, and (when the sweep exists) the Method 4
+# row nearest to lambda* in roughness. Kept as a helper so stage_scores and the
+# stand-alone spectrum stage select the SAME curves.
+_SPECTRUM_BASE_FIELDS = ("iid_seed0", "mode_map", "mixture_mean",
+                         "smoothed_map_n10", "m1_star")
+
+
+def _read_scores_rtilde(out_dir):
+    """{name: r_tilde} from the persisted scores.csv (None if absent)."""
+    path = Path(out_dir) / "scores.csv"
+    if not path.exists():
+        return None
+    out = {}
+    with open(path, newline="") as fh:
+        for row in csv.DictReader(fh):
+            try:
+                out[row["name"]] = float(row["r_tilde"])
+            except (KeyError, ValueError):
+                continue
+    return out
+
+
+def _headline_field_names(fields, rtilde):
+    """Ordered headline curve names for the variogram/spectrum. Appends the
+    Method 4 sweep row nearest to m1_star in roughness when both are available,
+    matching stage_scores' original selection."""
+    names = [n for n in _SPECTRUM_BASE_FIELDS if n in fields]
+    m4 = {n: (f, kind, param) for n, (f, kind, param) in fields.items()
+          if kind == "method4"}
+    if m4 and rtilde and "m1_star" in rtilde:
+        star_rt = rtilde["m1_star"]
+        nearest = min((n for n in m4 if n in rtilde),
+                      key=lambda n: abs(rtilde[n] - star_rt), default=None)
+        if nearest is not None:
+            names.append(nearest)
+    return names
+
+
+def _maybe_budget_field(out_dir):
+    """The W3/DEC-R46 faithfulness-budget Joint MAP field, or None.
+
+    Single-sourced from budget_point.npz (scripts/run_budget_point.py) so the
+    +48h angular power spectrum shows the SAME field the maps figure adds as its
+    faithfulness-budget panel. Spectrum-only: the variogram is retired from the
+    report, so the budget curve is not added to it.
+    """
+    path = Path(out_dir) / "budget_point.npz"
+    if not path.exists():
+        return None
+    with np.load(path) as f:
+        return np.asarray(f["field"], dtype=float).reshape(-1)
+
+
+def _write_spectra(out_dir, latlons, spec_fields):
+    """Compute and persist the native O96 angular power spectrum for spec_fields.
+    Returns (lmax_resolved, elapsed_s)."""
+    t0 = time.perf_counter()
+    ell, spectra, lmax_resolved = sampled_spherical_power_spectrum(latlons, spec_fields)
+    np.savez(out_dir / "spectra.npz", ell=ell, lmax_resolved=lmax_resolved, **spectra)
+    return int(lmax_resolved), time.perf_counter() - t0
+
+
+def _assemble_spectrum_fields(out_dir, latlons, args):
+    """Full spectrum curve set from the persisted artifacts: headline fields +
+    ERA5 direction reference (if available) + the W3 budget curve (if solved).
+    Used by the stand-alone `spectrum` stage."""
+    fields = _collect_fields(out_dir)
+    rtilde = _read_scores_rtilde(out_dir)
+    spec_fields = {n: fields[n][0] for n in _headline_field_names(fields, rtilde)}
+    era5 = _maybe_load_era5_reference(getattr(args, "regime", None), latlons, out_dir, args)
+    if era5 is not None:
+        spec_fields["era5"] = era5
+    budget = _maybe_budget_field(out_dir)
+    if budget is not None:
+        spec_fields["m1_budget"] = budget
+    return spec_fields
+
+
+def stage_spectrum(data, out_dir, args):
+    """Regenerate ONLY spectra.npz from the persisted method fields (no re-scoring,
+    no variogram resampling). Refreshes the angular power spectrum's curve set --
+    e.g. picking up the W3 faithfulness-budget curve once budget_point.npz exists."""
+    latlons = data["latlons"]
+    spec_fields = _assemble_spectrum_fields(out_dir, latlons, args)
+    lmax_resolved, _ = _write_spectra(out_dir, latlons, spec_fields)
+    print(f"[spectrum] wrote spectra.npz (resolved l<= {lmax_resolved}; "
+          f"{len(spec_fields)} curves: {', '.join(spec_fields)})")
+
+
 def stage_scores(data, out_dir, args):
     pi, mu, sigma, latlons = data["pi"], data["mu"], data["sigma"], data["latlons"]
     masks_all = _load_masks(out_dir)
@@ -735,19 +834,13 @@ def stage_scores(data, out_dir, args):
 
     # Variograms for the headline fields (60k pairs, diagnostics.py convention).
     t0 = time.perf_counter()
-    headline = ["iid_seed0", "mode_map", "mixture_mean", "smoothed_map_n10", "m1_star"]
-    if (out_dir / "method4_sweep.npz").exists() and (out_dir / "lambda_star.json").exists():
-        # nearest-R~ Method 4 row to the lambda* field
-        star_row = next(r for r in rows if r["name"] == "m1_star")
-        m4_rows = [r for r in rows if r["kind"] == "method4"]
-        if m4_rows:
-            nearest = min(m4_rows, key=lambda r: abs(r["r_tilde"] - star_row["r_tilde"]))
-            headline.append(nearest["name"])
+    rtilde = {r["name"]: r["r_tilde"] for r in rows}
+    headline = _headline_field_names(fields, rtilde)
     vario_fields = {n: fields[n][0] for n in headline if n in fields}
 
-    # Optional ERA5 rung-3 direction reference, added to BOTH the variogram and
-    # the spectrum so they carry an identical field set (it is the same diagnostic
-    # two ways). None on any gate failure -> both ship sample-only (cut C4).
+    # Optional ERA5 rung-3 direction reference, added to both the variogram and
+    # the spectrum (the same diagnostic two ways). None on any gate failure ->
+    # both ship sample-only (cut C4).
     era5 = _maybe_load_era5_reference(regime, latlons, out_dir, args)
     vario_fields_with_era5 = dict(vario_fields)
     spec_fields = dict(vario_fields)
@@ -762,25 +855,31 @@ def stage_scores(data, out_dir, args):
     np.savez(out_dir / "variograms.npz", centres=centres, **variograms)
     variograms_s = time.perf_counter() - t0
 
-    # Native O96 angular power spectrum for the SAME field set (rung-3 bracket
-    # diagnostic; spectrum_era5_plan.md). Default engine is the validated
-    # pure-numpy SHT (no extra dependency).
-    t0 = time.perf_counter()
-    ell, spectra, lmax_resolved = sampled_spherical_power_spectrum(latlons, spec_fields)
-    np.savez(out_dir / "spectra.npz", ell=ell, lmax_resolved=lmax_resolved, **spectra)
+    # The W3/DEC-R46 faithfulness-budget curve joins the spectrum (only) when its
+    # solve exists, matching the maps figure's budget panel (single-sourced from
+    # budget_point.npz). The spectrum is the report's coherence figure; the
+    # variogram is retired, so the curve is not added there.
+    budget = _maybe_budget_field(out_dir)
+    if budget is not None:
+        spec_fields["m1_budget"] = budget
+
+    # Native O96 angular power spectrum (rung-3 bracket diagnostic;
+    # spectrum_era5_plan.md). Default engine is the validated pure-numpy SHT.
+    lmax_resolved, spectra_s = _write_spectra(out_dir, latlons, spec_fields)
     _update_timings(
-        out_dir, scores_s=scores_s, variograms_s=variograms_s,
-        spectra_s=time.perf_counter() - t0,
+        out_dir, scores_s=scores_s, variograms_s=variograms_s, spectra_s=spectra_s,
     )
     print(f"[scores] wrote scores.csv/.md, delta_per_cell.npz, variograms.npz, "
           f"spectra.npz (resolved l<= {lmax_resolved}; {len(rows)} fields, "
-          f"era5={'yes' if era5 is not None else 'no'})")
+          f"era5={'yes' if era5 is not None else 'no'}, "
+          f"budget={'yes' if budget is not None else 'no'})")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stages", type=str, default=",".join(STAGES),
-                        help=f"comma-separated subset of {STAGES}")
+    parser.add_argument("--stages", type=str, default=",".join(DEFAULT_STAGES),
+                        help=f"comma-separated subset of {STAGES} (default: "
+                             f"{','.join(DEFAULT_STAGES)}; `spectrum` is opt-in)")
     parser.add_argument("--lambda-star", action="store_true",
                         help="apply the S6 lambda* rule + sensitivity (needs anchors+m1)")
     parser.add_argument("--quick", action="store_true", help="smoke mode (reduced settings)")
@@ -817,6 +916,7 @@ def main():
     stage_fns = {
         "graph": stage_graph, "anchors": stage_anchors, "modes": stage_modes,
         "m1": stage_m1, "m4": stage_m4, "scores": stage_scores,
+        "spectrum": stage_spectrum,
     }
     for name in STAGES:
         if name in requested:

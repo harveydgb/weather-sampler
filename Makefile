@@ -29,7 +29,7 @@ softening:
 faithfulness:
 	$(PY) scripts/run_forecast_faithfulness.py
 
-## The two Phase 1/2 toy report figures, from the persisted stage_* artifacts
+## The Phase 1/2 toy report figures, from the persisted stage_* artifacts
 ## (no sweep re-run; replaces the old notebook 02/03 exports).
 toy-figures:
 	$(PY) scripts/make_toy_figures.py

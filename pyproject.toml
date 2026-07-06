@@ -5,6 +5,7 @@ description = "Research code and diagnostics for WeatherGenerator sampler experi
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "ducc0>=0.41",
     "numpy>=1.24",
     "scipy>=1.11",
 ]
@@ -24,14 +25,6 @@ notebooks = [
 ]
 real = [
     "torch",
-]
-# Optional accelerator for the native O96 angular power spectrum
-# (diagnostics.sampled_spherical_power_spectrum, engine="ducc0"). The pure-numpy
-# "native" engine is the default and needs no extra dependency; ducc0 is faster
-# but is not pre-built for every platform (e.g. no aarch64 wheel -> source build
-# requiring a recent C++ toolchain + Python dev headers).
-spectrum = [
-    "ducc0>=0.34",
 ]
 
 [build-system]

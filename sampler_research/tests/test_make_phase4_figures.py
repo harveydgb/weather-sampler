@@ -154,3 +154,63 @@ def test_appendix_region_lambda_sweep_is_step8_render():
     assert found == [f"{_FORECAST_STEP8}/phase_4_region_lambda_sweep_maps.png"], (
         f"App B lambda strip must be the step-8 region render, got {found!r}")
     assert (FIG_DIR / found[0]).exists(), f"missing lambda-strip asset: {found[0]}"
+
+
+# --- Spectrum curve inventory (W3/DEC-R46) -------------------------------------
+_RUN_STEP8 = REPO_ROOT / "outputs" / "runs" / _FORECAST_STEP8
+
+
+def test_spectrum_curve_set_drops_duplicates_and_keeps_budget():
+    """The main-text angular power spectrum shows exactly the fig:fc-maps method
+    set: the two mid-band duplicates (Mixture mean, Mode-selection MRF) are
+    dropped and the W3 faithfulness-budget Joint MAP curve is included, in the
+    maps figure's panel order."""
+    figures = _load_figures()
+    assert figures.SPECTRUM_CURVES == (
+        "mode_map", "iid_seed0", "m1_star", "smoothed_map_n10", "m1_budget", "era5")
+    assert "mixture_mean" not in figures.SPECTRUM_CURVES
+    assert "m4_beta1" not in figures.SPECTRUM_CURVES
+
+
+@pytest.mark.skipif(not (_RUN_STEP8 / "spectra.npz").exists(),
+                    reason="converged +48h spectra artifact absent")
+def test_fig_spectrum_plots_maps_panel_set_only(tmp_path, monkeypatch):
+    """Driving fig_spectrum on the canonical run dir plots ONLY the fig:fc-maps
+    method set (in panel order) even though spectra.npz still carries the retired
+    mixture_mean / m4_beta1 curves, and labels the budget curve with the same
+    lambda the maps figure's budget panel uses (single-sourced from
+    budget_point.npz), so the two figures cannot drift."""
+    import numpy as np
+
+    figures = _load_figures()
+    figures.RUN_DIR = _RUN_STEP8
+    figures.FIG_DIR = tmp_path
+
+    captured = {}
+
+    def _capture(ell, spectra, *, title, labels=None, figsize=None):
+        captured["keys"] = list(spectra)
+        captured["labels"] = labels or {}
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        ax.plot([0], [0], label="stub")  # a labelled artist so fig_spectrum's legend() is quiet
+        return fig, ax
+
+    monkeypatch.setattr(figures, "plot_spectra", _capture)
+    figures.fig_spectrum()
+
+    with np.load(_RUN_STEP8 / "spectra.npz") as f:
+        available = set(f.files) - {"ell", "lmax_resolved"}
+    expected = [k for k in figures.SPECTRUM_CURVES if k in available]
+    assert captured["keys"] == expected, "spectrum curve set / order drifted from fig:fc-maps"
+    # The retired duplicates remain in the artifact but must never reach the plot.
+    assert "mixture_mean" in available and "mixture_mean" not in captured["keys"]
+    assert "m4_beta1" in available and "m4_beta1" not in captured["keys"]
+
+    budget_path = _RUN_STEP8 / "budget_point.npz"
+    if budget_path.exists():
+        with np.load(budget_path) as f:
+            lam = float(f["lambda_budget"])
+        assert captured["labels"].get("m1_budget") == \
+            f"Joint MAP ($\\lambda$={lam:.0f})", \
+            "budget curve label must match the maps figure's budget panel"
