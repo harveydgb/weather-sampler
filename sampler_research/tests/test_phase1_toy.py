@@ -6,7 +6,7 @@ from sampler_research.baselines import mode_field, smoothest_mode_assignment
 from sampler_research.graph import grid_edges_8, scale_free_roughness
 from sampler_research.io import SAMPLER_KEYS, load_npz, load_sampler_arrays
 from sampler_research.toy import Phase1ToyConfig, make_phase1_toy, save_phase1_toy
-from scripts.generate_phase1_data import configs_for_variant
+from scripts.generate_toy_data import configs_for_variant
 
 
 def test_homoscedastic_shapes_and_invariants() -> None:

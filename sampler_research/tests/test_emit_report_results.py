@@ -98,6 +98,28 @@ def test_render_macros_defines_placeholder_and_all_commands():
         assert rf"\newcommand{{\{name}}}" in text
 
 
+def test_render_macros_emits_texcount_directive_per_macro():
+    # Every emitted \newcommand must carry a %TC:macroword directive so the
+    # official texcount (-merge) includes its rendered words; a macro without
+    # one silently counts 0 toward the 7,000-word cap.
+    m = _load()
+    macros = m.build_macros(SOFT, LAM, FAITH, {}, {"lambda_star": 93.74, "beta": None})
+    text = m.render_macros(macros)
+    assert r"%TC:macroword \ResultPlaceholder 0" in text
+    for name, value in macros.items():
+        expected = m.tc_macroword_value(value)
+        assert rf"%TC:macroword \{name} {expected}" in text
+
+
+def test_tc_macroword_value_rules():
+    m = _load()
+    assert m.tc_macroword_value("0.766") == 1          # bare number
+    assert m.tc_macroword_value(r"13.2\%") == 1        # percentage
+    assert m.tc_macroword_value(r"-19.5\,pp") == 2     # value + unit
+    assert m.tc_macroword_value(r"\ResultPlaceholder") == 0
+    assert m.tc_macroword_value(r"\textemdash") == 0
+
+
 def test_tables_render_rows_and_dagger():
     m = _load()
     pi_tbl = m.build_pi_softening_table(SOFT)

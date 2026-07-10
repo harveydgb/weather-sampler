@@ -7,4 +7,4 @@ PY := python
 test:
 	$(PY) -m pytest -q
 toy-data:
-	$(PY) scripts/generate_phase1_data.py
+	$(PY) scripts/generate_toy_data.py

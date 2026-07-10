@@ -6,11 +6,11 @@ runner once per lead with a lead-specific run directory.
 
 Example smoke run:
 
-    .venv/bin/python scripts/run_phase4_forecast_leads.py --dry-run --lead-steps 8
+    .venv/bin/python scripts/run_forecast_leads.py --dry-run --lead-steps 8
 
 Full 6-epoch audit:
 
-    .venv/bin/python scripts/run_phase4_forecast_leads.py
+    .venv/bin/python scripts/run_forecast_leads.py
 
 Use --skip-convert once the per-lead files already exist in outputs/data/.
 """
@@ -29,8 +29,8 @@ from typing import Iterable, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONVERT_SCRIPT = REPO_ROOT / "scripts" / "convert_real_gmm_pt_to_npz.py"
-RUN_PHASE4_SCRIPT = REPO_ROOT / "scripts" / "run_phase4_real.py"
-FIGURE_SCRIPT = REPO_ROOT / "scripts" / "make_phase4_figures.py"
+RUN_PHASE4_SCRIPT = REPO_ROOT / "scripts" / "run_real_eval.py"
+FIGURE_SCRIPT = REPO_ROOT / "scripts" / "make_real_figures.py"
 
 DEFAULT_FORECAST_PT = Path("~/model_outputs/gmm_params_gmm_fc48_v1_me5_2t_f8.pt")
 DEFAULT_PREFIX = "phase_4_fc48_6ep"
@@ -40,7 +40,7 @@ DEFAULT_GRAPH_CACHE = REPO_ROOT / "outputs" / "runs" / "o96_knn_k8_graph.npz"
 DEFAULT_FIGURES_DIR = REPO_ROOT / "outputs" / "figures"
 
 # Per-lead figures exclude `robustness`: that figure reads robustness_probes.json
-# (written only by scripts/run_phase4_probes.py for the committed step-0 run dir),
+# (written only by scripts/run_real_probes.py for the committed step-0 run dir),
 # which the forecast leads never generate -> a bare `--figures` call would crash
 # with FileNotFoundError. The faithfulness figure is produced separately by
 # scripts/run_forecast_faithfulness.py.
@@ -351,13 +351,13 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                         help="comma-separated forecast steps, e.g. 1,8; default: all converted steps")
     parser.add_argument("--graph-cache", type=Path, default=DEFAULT_GRAPH_CACHE)
     parser.add_argument("--quick", action="store_true",
-                        help="pass --quick through to run_phase4_real.py")
+                        help="pass --quick through to run_real_eval.py")
     parser.add_argument("--dry-run", action="store_true",
                         help="print planned commands without executing them")
     parser.add_argument("--skip-convert", action="store_true",
                         help="use already-converted per-lead .npz files")
     parser.add_argument("--figures", action="store_true",
-                        help="also run make_phase4_figures.py per lead")
+                        help="also run make_real_figures.py per lead")
     parser.add_argument("--figures-dir", type=Path, default=DEFAULT_FIGURES_DIR,
                         help="parent directory for per-lead figure directories")
     parser.add_argument("--convert-python", default=None,

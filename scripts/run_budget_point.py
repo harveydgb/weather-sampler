@@ -35,7 +35,7 @@ from sampler_research.regularised_map import minimise_at_lambda, objective
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUN_DIR = REPO_ROOT / "outputs" / "runs" / "phase_4_fc48_14ep_step8"
 
-# Production Method 1 settings, mirrored from scripts/run_phase4_real.py.
+# Production Method 1 settings, mirrored from scripts/run_real_eval.py.
 N_RESTARTS = 4
 N_STEPS = 400
 LR = 0.05
@@ -65,7 +65,7 @@ def _interp_lambda(lo, hi, target):
 
 
 def _solve(pi, mu, sigma, lam, edges, lap, restart_scale):
-    """Sanity-guarded production solve (run_phase4_real._solve_lambda convention)."""
+    """Sanity-guarded production solve (run_real_eval._solve_lambda convention)."""
     warm, _ = mode_field(pi, mu, sigma)
     warm_energy = objective(warm, pi, mu, sigma, lam, laplacian=lap, n_edges=len(edges))
     lr = LR

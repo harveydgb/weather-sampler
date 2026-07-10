@@ -58,7 +58,7 @@ suite is green on a clean clone.
 
 The synthetic toy data regenerates from source:
 
-    python scripts/generate_phase1_data.py
+    python scripts/generate_toy_data.py
 
 The real-data and forecast results depend on the emitted mixture files from the WeatherGenerator
 model, which are large and not committed. To regenerate them from scratch, follow

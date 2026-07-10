@@ -11,7 +11,7 @@ Stage B-TV — three-arm TV ablation + exact-MAP certification of Method 1.
 
 Run from the repo root with the local venv:
 
-    .venv/bin/python scripts/run_stage_b_tv_ablation.py
+    .venv/bin/python scripts/run_tv_ablation.py
 
 This is the pre-registered §4.1 field-6 / §8 #8 penalty ablation of **Method 1**
 (not a new method): Stage B/D showed the quadratic-penalty joint mode smears

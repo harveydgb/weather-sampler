@@ -4,10 +4,10 @@ phase_4_data_audit.md).
 
 Run from the repo root with the local (numpy/scipy-only) venv:
 
-    .venv/bin/python scripts/run_phase4_real.py                  # all stages
-    .venv/bin/python scripts/run_phase4_real.py --stages m1      # one stage
-    .venv/bin/python scripts/run_phase4_real.py --lambda-star    # S6 rule + sensitivity
-    .venv/bin/python scripts/run_phase4_real.py --quick --out-dir /tmp/p4smoke
+    .venv/bin/python scripts/run_real_eval.py                  # all stages
+    .venv/bin/python scripts/run_real_eval.py --stages m1      # one stage
+    .venv/bin/python scripts/run_real_eval.py --lambda-star    # S6 rule + sensitivity
+    .venv/bin/python scripts/run_real_eval.py --quick --out-dir /tmp/p4smoke
 
 Stages (separately invokable; later stages load earlier artifacts):
   graph   -> masks.npz (stratum masks + k-NN edges + edge_arc_km)

@@ -483,7 +483,7 @@ def plot_mollweide_fields(
 
 # --- Sweep-direction arrows and parameter-value labels -----------------------
 # Shared by the toy Phase-2 figures (scripts/make_toy_figures.py) and the real
-# Phase-4 figures (scripts/make_phase4_figures.py) so a parameter sweep reads in
+# Phase-4 figures (scripts/make_real_figures.py) so a parameter sweep reads in
 # the same house style in both: outline-chevron direction arrows along the curve
 # and first / best / last parameter-value labels on the sweep circles.
 

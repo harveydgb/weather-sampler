@@ -5,7 +5,7 @@ variant is O(|E|·G²) ≈ 7e8 arcs at N = 40,320 (infeasible) and the TV varian
 no new claim. The verdict it produced — the exact TV mode is non-smearing only down
 to R̃ ≈ 0.5 and then collapses rather than smears, while the global quadratic mode
 still smears — now lives in large_notes.md (Phase 2 status) / phase_2.md; evidence in
-notebooks/03_tv_ablation_exact_map.ipynb. Kept for the toy tests; do not port.
+notebooks/03_tv_ablation.ipynb. Kept for the toy tests; do not port.
 
 Exact MAP over a discretised value axis via Ishikawa min-cut (Stage B-TV).
 

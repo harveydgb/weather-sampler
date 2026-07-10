@@ -10,11 +10,15 @@ COMMON_EXCL=(--exclude='__pycache__/' --exclude='*.pyc' --exclude='*.egg-info/'
 
 # library (src + tests)
 rsync -a --delete "${COMMON_EXCL[@]}" "$SRC/sampler_research/" "$DEST/sampler_research/"
-# scripts, minus the 3 dev throwaways
-rsync -a --delete "${COMMON_EXCL[@]}" \
+# scripts, minus the dev throwaways / not-for-submission diagnostics.
+# --delete-excluded so an excluded file is actively removed from DEST (a plain
+# --exclude would protect an already-exported copy from --delete), keeping the
+# scripts dir an exact function of the allowlist on every re-run.
+rsync -a --delete --delete-excluded "${COMMON_EXCL[@]}" \
   --exclude='check_threshold_sensitivity.py' \
   --exclude='check_deep_tail_decomp.py' \
   --exclude='real_output_diagnostics.py' \
+  --exclude='run_phase4_local_variance_test_sampler.py' \
   "$SRC/scripts/" "$DEST/scripts/"
 rsync -a --delete "${COMMON_EXCL[@]}" "$SRC/notebooks/" "$DEST/notebooks/"
 rsync -a --delete "$SRC/docs/" "$DEST/docs/"

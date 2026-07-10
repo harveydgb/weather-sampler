@@ -296,7 +296,7 @@ def _alm_ducc0(field, layout, lmax):
 
     Uses the orthonormal convention (matches the native engine). The field is
     premultiplied by the per-point quadrature weight w_j * (2*pi / nphi_j) and
-    fed to ``adjoint_synthesis_general`` (= sum over points of value * conj(Y)),
+    fed to ``adjoint_synthesis`` (= sum over points of value * conj(Y)),
     which equals the analysis integral on this exact-quadrature grid.
     """
 

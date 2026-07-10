@@ -15,11 +15,11 @@ import pytest
 
 from conftest import REPO_ROOT
 
-SCRIPT = REPO_ROOT / "scripts" / "make_phase4_figures.py"
+SCRIPT = REPO_ROOT / "scripts" / "make_real_figures.py"
 
 
 def _load_figures():
-    spec = importlib.util.spec_from_file_location("make_phase4_figures", SCRIPT)
+    spec = importlib.util.spec_from_file_location("make_real_figures", SCRIPT)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules[spec.name] = module

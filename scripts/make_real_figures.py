@@ -1,8 +1,8 @@
 """Phase 4 report figures from the persisted runner artifacts (phase_4_plan S5).
 
-Run after `scripts/run_phase4_real.py` (all stages + --lambda-star):
+Run after `scripts/run_real_eval.py` (all stages + --lambda-star):
 
-    .venv/bin/python scripts/make_phase4_figures.py
+    .venv/bin/python scripts/make_real_figures.py
 
 Writes to outputs/figures/:
   phase_4_maps.png               4/5-panel global Mollweide
@@ -28,7 +28,7 @@ Writes to outputs/figures/:
                                  sweep is pinned) + unit-vs-weighted-graph
                                  matched-coherence points (needs
                                  robustness_probes.json from
-                                 scripts/run_phase4_probes.py)
+                                 scripts/run_real_probes.py)
 
 Figures are generated here (not in notebook 04) so the MUST figure task does
 not depend on notebook execution; the notebook displays these files.
@@ -781,7 +781,7 @@ def fig_spectrum():
     """Native O96 angular power spectrum C_l -- main-text coherence figure (S5.4).
 
     RUNG-3 bracket diagnostic, never a target/validation. Loads spectra.npz
-    (written by run_phase4_real.py stage_scores / stage_spectrum), plots the
+    (written by run_real_eval.py stage_scores / stage_spectrum), plots the
     SPECTRUM_CURVES set over the Parseval-resolved band, and draws the `era5`
     series as a direction-of-realism reference line. The faithfulness-budget Joint
     MAP curve is labelled with its solved lambda, single-sourced from
@@ -978,9 +978,9 @@ def main():
                               "region_maps, region_lambda_maps, "
                               "region_lambda_maps_localvar_test, enrichment, robustness}"))
     parser.add_argument("--data", type=Path, default=DATA_NPZ,
-                        help="real-marginal npz (mirrors run_phase4_real.py --data)")
+                        help="real-marginal npz (mirrors run_real_eval.py --data)")
     parser.add_argument("--out-dir", type=Path, default=RUN_DIR,
-                        help="run artifacts dir (mirrors run_phase4_real.py --out-dir)")
+                        help="run artifacts dir (mirrors run_real_eval.py --out-dir)")
     parser.add_argument("--fig-dir", type=Path, default=FIG_DIR,
                         help="figure output dir (default outputs/figures)")
     args = parser.parse_args()

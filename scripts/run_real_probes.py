@@ -2,9 +2,9 @@
 
 Deterministic re-derivation of the 11 Jun post-implementation review probes, so
 the report quotes persisted numbers instead of throwaway /tmp evidence. Run
-after `scripts/run_phase4_real.py` (all stages + --lambda-star):
+after `scripts/run_real_eval.py` (all stages + --lambda-star):
 
-    .venv/bin/python scripts/run_phase4_probes.py
+    .venv/bin/python scripts/run_real_probes.py
 
 For a converged forecast run, the lambda* seed-stability probe alone (CPU-only,
 no model inference) runs under --seed-stability-only: it reads the run-specific
@@ -12,7 +12,7 @@ restart_scale from that run's lambda_star.json (NOT the AE 0.15), loads the
 shared o96 kNN graph for edges, and writes a robustness_probes.json holding only
 that one block into the run dir:
 
-    .venv/bin/python scripts/run_phase4_probes.py --seed-stability-only \
+    .venv/bin/python scripts/run_real_probes.py --seed-stability-only \
         --run-dir outputs/runs/phase_4_fc48_14ep_step8 \
         --data-npz outputs/data/phase_4_fc48_14ep_step8_2t.npz
 
@@ -74,7 +74,7 @@ DATA_NPZ = REPO_ROOT / "outputs" / "data" / "phase_4_real_2t.npz"
 RUN_DIR = REPO_ROOT / "outputs" / "runs" / "phase_4_real"
 GRAPH_NPZ = REPO_ROOT / "outputs" / "runs" / "o96_knn_k8_graph.npz"
 
-# Production Method 1 / Method 4 settings (mirrors scripts/run_phase4_real.py).
+# Production Method 1 / Method 4 settings (mirrors scripts/run_real_eval.py).
 N_RESTARTS = 4
 N_STEPS = 400
 LR = 0.05
@@ -320,7 +320,7 @@ def _run_seed_stability_only(run_dir, data_npz, graph_npz):
     Threads the run-specific restart_scale (read from the run's lambda_star.json,
     NOT the AE default 0.15) into the Method-1 re-solves, and takes edges from the
     SHARED o96 kNN graph. Writes a robustness_probes.json holding only the
-    lambda_star_seed_stability block, so make_phase4_figures.fig_robustness keeps
+    lambda_star_seed_stability block, so make_real_figures.fig_robustness keeps
     skipping gracefully on runs where the other probes are absent."""
     t0 = time.perf_counter()
     data = load_real_marginal(data_npz)

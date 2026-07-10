@@ -10,7 +10,7 @@ Stage D — Method 5 as a Method 1 stochastic-search / robustness ablation.
 
 Run from the repo root with the local (numpy-only) venv:
 
-    .venv/bin/python scripts/run_stage_d_method5_langevin.py
+    .venv/bin/python scripts/run_langevin.py
 
 Method 5 is **not** a third sampler family (phase_2_research_plan.md §4.3,
 DEFERRED→ensemble). It runs annealed-noise Langevin **search** on Method 1's

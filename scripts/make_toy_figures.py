@@ -87,7 +87,7 @@ from sampler_research.plotting import (
 )
 
 # Within-field spatial-bootstrap settings, kept identical to the real macro
-# pipeline (scripts/make_phase4_figures.py BOOT_* / emit_report_results.py) so
+# pipeline (scripts/make_real_figures.py BOOT_* / emit_report_results.py) so
 # the toy and real smear-tail CIs are computed the same way, draw-for-draw.
 BOOT_THRESHOLD = 0.125
 BOOT_N_DRAWS = 2000
@@ -349,7 +349,7 @@ def fig_pareto_plane(art, fig_dir=FIG_DIR):
     # TV (Adam) is intentionally omitted from this main-text figure: it is
     # confounded (fails its own min-cut optimality certificate below lambda=0.2)
     # and dominated on this plane. The arm is still produced by the pipeline
-    # (run_stage_b_tv_ablation.py) and may appear in Appendix F; see
+    # (run_tv_ablation.py) and may appear in Appendix F; see
     # research_notes/phase_2.md and report_plan.md for the rationale.
 
     # TV (exact) min-cut frontier; variance-collapsed points (lambda >= 2) have

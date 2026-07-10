@@ -1,6 +1,6 @@
 """Phase 4 evaluation protocol: strata, stratified scores, and the lambda* rule.
 
-Shared by the runner (`scripts/run_phase4_real.py`), the report notebook, and
+Shared by the runner (`scripts/run_real_eval.py`), the report notebook, and
 the test suite so all three quote identical numbers. The protocol facts live in
 phase_4_plan.md (S5 diagnostics, S6 lambda-selection rule) and the data facts in
 phase_4_data_audit.md (S4 multimodality census, S5 grid). A global mean dilutes

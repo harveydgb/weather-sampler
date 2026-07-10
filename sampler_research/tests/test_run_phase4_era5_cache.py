@@ -15,11 +15,11 @@ import pytest
 
 from conftest import REPO_ROOT
 
-SCRIPT = REPO_ROOT / "scripts" / "run_phase4_real.py"
+SCRIPT = REPO_ROOT / "scripts" / "run_real_eval.py"
 
 
 def _load_runner():
-    spec = importlib.util.spec_from_file_location("run_phase4_real", SCRIPT)
+    spec = importlib.util.spec_from_file_location("run_real_eval", SCRIPT)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules[spec.name] = module

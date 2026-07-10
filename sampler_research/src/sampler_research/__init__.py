@@ -1,7 +1,10 @@
-"""Utilities for the sampler research notebooks.
+"""Public API for the sampler research library.
 
-Phase 1/data-diagnostic helpers plus the Phase 2 Stage A baselines (graph,
-roughness metrics, and yardstick fields).
+Re-exports the toy-model construction and array I/O, the graph/Laplacian and
+scale-free roughness metrics, the power-spectrum diagnostics, the Stage A
+baseline fields, the two samplers (regularised MAP / Method 1 and the
+mode-selection value-space MRF / Method 4), and the forecast-regime softening
+metric. See each submodule for the details.
 """
 
 from sampler_research.io import SAMPLER_KEYS, load_sampler_arrays

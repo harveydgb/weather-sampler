@@ -2,7 +2,7 @@
 
 Run from the repo root with the local (numpy-only) venv:
 
-    .venv/bin/python scripts/run_stage_b_regularised_map.py
+    .venv/bin/python scripts/run_regularised_map.py
 
 For each dataset in ``outputs/data/`` this loads only the sampler-facing arrays
 (``pi``, ``mu``, ``sigma``, ``coords``; see ``load_sampler_arrays``), minimises

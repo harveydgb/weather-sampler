@@ -12,11 +12,11 @@ from pathlib import Path
 
 from conftest import REPO_ROOT
 
-SCRIPT = REPO_ROOT / "scripts" / "run_phase4_forecast_leads.py"
+SCRIPT = REPO_ROOT / "scripts" / "run_forecast_leads.py"
 
 
 def _load_runner():
-    spec = importlib.util.spec_from_file_location("run_phase4_forecast_leads", SCRIPT)
+    spec = importlib.util.spec_from_file_location("run_forecast_leads", SCRIPT)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules[spec.name] = module
@@ -78,7 +78,7 @@ def test_dry_run_command_plan_uses_prefix_format_distinct_dirs_and_shared_graph(
     assert _arg_after(convert, "--prefix") == prefix
     assert _arg_after(convert, "--input") == str(forecast_pt)
 
-    phase4 = [cmd.argv for cmd in commands if "run_phase4_real.py" in cmd.argv[1]]
+    phase4 = [cmd.argv for cmd in commands if "run_real_eval.py" in cmd.argv[1]]
     assert len(phase4) == 6
     full_runs = [argv for argv in phase4 if "--lambda-star" not in argv and "--stages" not in argv]
     assert [_arg_after(argv, "--out-dir") for argv in full_runs] == [
@@ -157,4 +157,4 @@ def test_per_lead_figures_exclude_robustness_via_only(tmp_path):
     only_vals = fig[only_idx + 1: only_idx + 1 + len(runner.LEAD_FIGURE_NAMES)]
     assert tuple(only_vals) == runner.LEAD_FIGURE_NAMES
     assert "robustness" not in fig
-    assert "make_phase4_figures.py" in fig[1]
+    assert "make_real_figures.py" in fig[1]

@@ -63,7 +63,7 @@ def _baseline_fields(pi, mu, sigma, rng):
 def toy(request):
     name = request.param
     if not (DATA_DIR / f"{name}.npz").exists():
-        pytest.skip(f"missing toy data {name}.npz; run scripts/generate_phase1_data.py")
+        pytest.skip(f"missing toy data {name}.npz; run scripts/generate_toy_data.py")
     pi, mu, sigma = _load(name)
     return name, pi, mu, sigma
 

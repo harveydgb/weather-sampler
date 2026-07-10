@@ -2,7 +2,7 @@
 
 Run from the repo root with the local (numpy-only) venv:
 
-    .venv/bin/python scripts/run_stage_c_method4_mrf.py
+    .venv/bin/python scripts/run_mode_mrf.py
 
 For ``phase_1_homoscedastic`` this loads only the sampler-facing arrays (``pi``,
 ``mu``, ``sigma``, ``coords``; see ``load_sampler_arrays``), extracts each cell's

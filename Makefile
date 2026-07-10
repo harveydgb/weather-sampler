@@ -19,8 +19,8 @@ PY := .venv/bin/python
 ## Full per-lead Phase 4 audit for both checkpoints + the converged replicate
 ## inits. Needs ~/model_outputs/*.pt and the WeatherGenerator venv (torch).
 forecast-leads:
-	$(PY) scripts/run_phase4_forecast_leads.py --prefix phase_4_fc48_6ep  --figures
-	$(PY) scripts/run_phase4_forecast_leads.py --prefix phase_4_fc48_14ep --figures \
+	$(PY) scripts/run_forecast_leads.py --prefix phase_4_fc48_6ep  --figures
+	$(PY) scripts/run_forecast_leads.py --prefix phase_4_fc48_14ep --figures \
 		--forecast-pt ~/model_outputs/gmm_params_gmm_fc48_v2_me7_2t_f8.pt
 
 softening:

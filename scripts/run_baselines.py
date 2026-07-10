@@ -2,7 +2,7 @@
 
 Run from the repo root with the local (numpy-only) venv:
 
-    .venv/bin/python scripts/run_stage_a_baselines.py
+    .venv/bin/python scripts/run_baselines.py
 
 For each dataset in ``outputs/data/`` this loads only the sampler-facing arrays
 (``pi``, ``mu``, ``sigma``, ``coords``; see ``load_sampler_arrays``), produces
