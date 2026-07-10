@@ -1,14 +1,14 @@
-"""Stage A baseline fields and scores.
+"""Baseline reference fields and scores.
 
-These are the yardsticks from phase_2_research_plan.md §7 Stage A: iid /
-salt-and-pepper, per-location likelihood-only mode/MAP, mixture mean,
-variance-scaled GMM (Method 9), the smoothed-MAP critical baseline, and the
-smoothest high-likelihood mode-assignment field `a*`. They are scored with
-`NLL/N`, scale-free roughness `R̃`, and secondary power-spectrum diagnostics.
+These are the baselines: iid / salt-and-pepper, per-location likelihood-only
+mode/MAP, mixture mean, variance-scaled GMM, the smoothed-MAP critical
+baseline, and the smoothest high-likelihood mode-assignment field `a*`. They
+are scored with `NLL/N`, scale-free roughness `R̃`, and secondary
+power-spectrum diagnostics.
 
-This module deliberately does *not* implement regularised MAP (Method 1) or
-mode extraction + MRF (Method 4); `a*` couples on component-mean *values*, never
-on the per-cell label index (constraint C5).
+This module deliberately does *not* implement the Joint MAP sampler or the
+Mode-selection MRF; `a*` couples on component-mean *values*, never on the
+per-cell label index (constraint C5).
 """
 
 import numpy as np

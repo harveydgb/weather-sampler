@@ -212,14 +212,16 @@ def test_build_bootstrap_macros_placeholders_when_absent():
 def test_build_spectrum_macros_pins_era5_bracket():
     """The two ERA5-bracket scalars the Section 5.5 spectrum prose quotes are read
     from the canonical +48h step-8 spectra.npz, not hand-typed off the figure. Pins
-    them to the 29-Jun log values: the worst-case large-scale agreement is 0.054
-    decades (JointMAP, every field at or below it) and ERA5 carries ~199x JointMAP's
-    fine-scale band power. A pipeline change that moved either would fail here before
-    the committed macro could silently drift from the prose."""
+    them to the current artifact: the worst-case large-scale agreement is 0.054
+    decades (JointMAP, every field at or below it) and ERA5 carries ~173x JointMAP's
+    fine-scale band power. The ratio moved 199 -> 173 when spectra.npz was regenerated
+    on 6 Jul with the m1_budget curve; DEC-R61(a) accepts the artifact-traceable 173.
+    A pipeline change that moved either would fail here before the committed macro
+    could silently drift from the prose."""
     m = _load()
     macros = m.build_spectrum_macros(FC_CONVERGED_RUN.parent)
     assert macros["spectrumDecadeAgreementMax"] == "0.054"
-    assert macros["spectrumEraRatioMethod"] == "199"
+    assert macros["spectrumEraRatioMethod"] == "173"
 
 
 def test_build_spectrum_macros_placeholders_when_absent(tmp_path):
