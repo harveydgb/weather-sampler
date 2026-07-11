@@ -1,15 +1,15 @@
-"""HISTORICAL (archived 11 Jun 2026) — toy TV min-cut certificate; job complete.
+"""Archived — toy TV min-cut certificate; job complete.
 
-CUT from the real-data path per phase_4_plan.md "Scope verdicts": the quadratic
+Excluded from the real-data path: the quadratic
 variant is O(|E|·G²) ≈ 7e8 arcs at N = 40,320 (infeasible) and the TV variant adds
 no new claim. The verdict it produced — the exact TV mode is non-smearing only down
 to R̃ ≈ 0.5 and then collapses rather than smears, while the global quadratic mode
-still smears — now lives in large_notes.md (Phase 2 status) / phase_2.md; evidence in
+still smears; evidence in
 notebooks/03_tv_ablation.ipynb. Kept for the toy tests; do not port.
 
 Exact MAP over a discretised value axis via Ishikawa min-cut (Stage B-TV).
 
-The Stage B-TV ablation (phase_2_research_plan.md §4.1 field 6 / §8 #8) needs
+The Stage B-TV ablation needs
 the *global* optimum of
 
     J(x) = NLL(x)/N + lambda * (1/|E_8|) sum_(i,j) g(x_i - x_j)

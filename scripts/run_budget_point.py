@@ -1,4 +1,4 @@
-"""Solve Joint MAP at the faithfulness-budget operating point (steering plan W3).
+"""Solve Joint MAP at the faithfulness-budget operating point.
 
 The budget rule: the largest smoothness weight lambda that keeps at least 95%
 of cells within 0.125 nat (~ half a local sigma) of their best emitted peak,
@@ -9,7 +9,7 @@ production Method 1 settings, with at most ONE corrective re-interpolation if
 the achieved fraction lands more than half a percentage point off the budget.
 
 Writes `budget_point.npz` into the run dir. NO existing artifact is touched;
-lambda* and every headline number are unaffected (DEC-R46, report_steering_plan.md).
+lambda* and every headline number are unaffected.
 
 Run from the repo root:
     .venv/bin/python scripts/run_budget_point.py

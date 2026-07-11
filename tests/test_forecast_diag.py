@@ -1,6 +1,6 @@
 """Forecast-regime softening metrics: synthetic checks + the log oracle gate.
 
-The oracle tests reproduce the canonical per-lead tables in research_notes/log.md
+The oracle tests reproduce the canonical per-lead values
 (2026-06-12 v1 me5; 2026-06-13 v2 me7) to displayed precision -- the same
 verification gate the log entries used. They skip when the converted per-lead
 npz are absent (local, gitignored artifacts; regenerate via
@@ -18,7 +18,7 @@ from conftest import REPO_ROOT
 DATA_DIR = REPO_ROOT / "outputs" / "data"
 
 # (prefix, step) -> (median_max_pi, one_hot_%, median_2nd_mode, bimod1_%, bimod2_%, keff_%)
-# verbatim from research_notes/log.md.
+# pinned expected values.
 ORACLE = {
     ("phase_4_fc48_6ep", 1): (0.953, 71.3, 0.042, 15.7, 2.8, 22.5),
     ("phase_4_fc48_6ep", 8): (0.803, 11.2, 0.151, 27.6, 2.9, 87.3),

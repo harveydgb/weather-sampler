@@ -1,6 +1,5 @@
 """Phase 4 — anchors, Method 1 sweep, lambda*, Method 4, and stratified scores
-on the real O96 GMM output (phase_4_plan.md S5-S6; data facts in
-phase_4_data_audit.md).
+on the real O96 GMM output.
 
 Run from the repo root with the local (numpy/scipy-only) venv:
 
@@ -27,7 +26,7 @@ Stages (separately invokable; later stages load earlier artifacts):
 if unbracketed, and persists lambda_star.json + method1_sensitivity.npz.
 
 The Method 1 grid {0, 0.5, 2, 8, 30, 100, 300, 1000} is the updated
-phase_4_plan grid, pre-verified (11 Jun review probe) to bracket smoothed-MAP's
+grid, pre-verified to bracket smoothed-MAP's
 R-tilde ~ 0.003; the 3-point coarse probe {2, 20, 200} + abort converts that
 calibration into a permanent guard.
 """
@@ -86,7 +85,7 @@ RUN_DIR = REPO_ROOT / "outputs" / "runs" / "phase_4_real"
 DEFAULT_STAGES = ("graph", "anchors", "modes", "m1", "m4", "scores")
 STAGES = DEFAULT_STAGES + ("spectrum",)
 
-# Updated phase_4_plan S5 grid (log-spaced through the verified target region).
+# Updated grid (log-spaced through the verified target region).
 LAMBDA_GRID = (0.0, 0.5, 2.0, 8.0, 30.0, 100.0, 300.0, 1000.0)
 PROBE_LAMBDAS = (2.0, 20.0, 200.0)
 IID_SEEDS = (0, 1, 2)
@@ -244,7 +243,7 @@ def stage_anchors(data, out_dir, args):
         )
     elapsed = time.perf_counter() - t0
 
-    # Anchor-table continuity DIAGNOSTIC (phase_4_plan S5): with near-one-hot pi
+    # Anchor-table continuity diagnostic: with near-one-hot pi
     # the mixture mean nearly coincides with the MAP field. At step 0 this gap is
     # tiny (< 0.02); under forecast-policy GMMs the pi spread, so the gap GROWING
     # is the expected finding, not an error. We record the value and never abort.
@@ -347,7 +346,7 @@ def stage_m1(data, out_dir, args):
             r, c = scale_free_roughness(f[name], edges)
             print(f"[m1]   {name}: R~ = {r:.5f}{' (collapsed)' if c else ''}")
 
-    # Bracket-check guard (phase_4_plan S5): coarse probe, abort if the
+    # Bracket-check guard: coarse probe, abort if the
     # production grid cannot bracket the smoothed-MAP target.
     probe_r = []
     for i, lam in enumerate(PROBE_LAMBDAS):
@@ -724,7 +723,7 @@ def _headline_field_names(fields, rtilde):
 
 
 def _maybe_budget_field(out_dir):
-    """The W3/DEC-R46 faithfulness-budget Joint MAP field, or None.
+    """The faithfulness-budget Joint MAP field, or None.
 
     Single-sourced from budget_point.npz (scripts/run_budget_point.py) so the
     +48h angular power spectrum shows the SAME field the maps figure adds as its
@@ -855,7 +854,7 @@ def stage_scores(data, out_dir, args):
     np.savez(out_dir / "variograms.npz", centres=centres, **variograms)
     variograms_s = time.perf_counter() - t0
 
-    # The W3/DEC-R46 faithfulness-budget curve joins the spectrum (only) when its
+    # The faithfulness-budget curve joins the spectrum (only) when its
     # solve exists, matching the maps figure's budget panel (single-sourced from
     # budget_point.npz). The spectrum is the report's coherence figure; the
     # variogram is retired, so the curve is not added there.

@@ -1,6 +1,6 @@
 """Default toy graph, Laplacian, and roughness metrics for Stage A.
 
-The conventions follow phase_2_research_plan.md §3.1a / phase_2.md: the default
+The conventions: the default
 edge set is the 8-neighbour grid `E_8` (horizontal, vertical, and diagonal
 neighbours, `w_ij = 1`), and roughness is reported scale-free as
 `R̃ = S_edge / Var_V`.
@@ -76,14 +76,14 @@ def _unit_sphere_xyz(latlons_deg):
 
 
 def knn_sphere_edges(latlons_deg, k=8):
-    """k-NN neighbour edges on the unit sphere (phase_4_plan §2).
+    """k-NN neighbour edges on the unit sphere.
 
     Embeds lat/lon as 3D unit vectors (chord distance is monotone in
     great-circle distance, so 3D k-NN == spherical k-NN; longitude wrap and the
     pole rings need no special casing). Symmetrised as the union
     (`i in knn(j)` OR `j in knn(i)`), deduplicated, returned as `[E, 2]` int64
     with `i < j`. `k=8` mirrors the toy `E_8` default and gives
-    `|E| = 162,406` at N = 40,320 (phase_4_data_audit §5).
+    `|E| = 162,406` at N = 40,320.
     """
 
     from scipy.spatial import cKDTree
@@ -112,7 +112,7 @@ def sparse_laplacian(n_cells, edges, weights=None):
     """scipy.sparse CSR graph Laplacian; default unit weights (toy convention).
 
     The dense N x N Laplacian is forbidden at real-grid size (13 GB at
-    N = 40,320 — phase_4_data_audit §9); this is the flat-path replacement for
+    N = 40,320); this is the flat-path replacement for
     `graph_laplacian`. A distance-decay weighting stays a declared ablation,
     not the default.
     """

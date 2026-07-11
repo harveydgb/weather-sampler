@@ -274,8 +274,8 @@ def build_lambda_table(lambda_stars, soft_rows):
         steps = _steps_union(soft_rows)
     # matched R-tilde was a constant column (held fixed by construction). Dropped:
     # the roughness-matching target, the bracketed-flag audit and the across-init
-    # range now live in the table CAPTION (thesis.tex), not in a separate note block
-    # under the table -- a table carries a caption only, no third text section.
+    # range now live in the table caption in the report, not in a separate note
+    # block under the table -- a table carries a caption only, no third text section.
     head = [
         r"\begin{tabular}{lcc}",
         r"\toprule",
@@ -303,7 +303,7 @@ def build_lambda_table(lambda_stars, soft_rows):
         r"\end{tabular}",
         r"% $\dagger$: unbracketed (nearest-row $\lambda^\star$, sweep extended);"
         r" the matching target, bracketed-flag audit and across-init range live in"
-        r" the table caption (thesis.tex), not in a note under the table.",
+        r" the table caption in the report, not in a note under the table.",
     ]
     return "\n".join(head + body + tail) + "\n"
 
@@ -313,9 +313,9 @@ def build_faithfulness_table(faith_rows, soft_rows):
     faith = {(r["run"], int(r["step"])): r for r in faith_rows
              if r.get("kind", "single") == "single"}
     steps = _steps_union(faith_rows) or _steps_union(soft_rows)
-    # DEC-R28 (3 Jul): CRPS and the PIT-KS uniformity statistic are out of the main
+    # CRPS and the PIT-KS uniformity statistic are out of the main
     # report; only the central marginal-position coverage remains (the Delta-CRPS
-    # column had already been dropped, 29 Jun table review). Headers keep the
+    # column had already been dropped in an earlier table review). Headers keep the
     # "marg.-pos." qualifier so the table cannot be misread as ensemble
     # calibration (non-claim #3). PIT-KS stays in the CSV/macros, just untabulated.
     head = [
@@ -338,7 +338,7 @@ def build_faithfulness_table(faith_rows, soft_rows):
         r"\bottomrule",
         r"\end{tabular}",
         r"% Joint MAP central marginal-position coverage only (report non-claim \#3); "
-        r"CRPS and PIT-KS were removed from the report (DEC-R28).",
+        r"CRPS and PIT-KS were removed from the report.",
     ]
     return "\n".join(head + body + tail) + "\n"
 
@@ -777,9 +777,8 @@ def build_faithfulness_spread_macros(faith_rows):
     _mean_lo_hi(macros, "deltaCrpsConverged", row, "iid_delta_crps", fmt_delta)
     # Macro bases must be letters-only: LaTeX \newcommand names cannot contain
     # digits, so "m1Cov90"->"mOneCovNinety" and "m1PitKs"->"mOnePitKs".
-    # Coverage is a share of cells (DEC-R40 precedent: shares of cells -> fmt_pct,
-    # differences of shares -> fmt_pp), so this repoints from the bare fmt_cov
-    # decimal to fmt_pct (harvey, 6 Jul).
+    # Coverage is a share of cells (shares of cells -> fmt_pct, differences of
+    # shares -> fmt_pp), so this repoints from the bare fmt_cov decimal to fmt_pct.
     _mean_lo_hi(macros, "mOneCovNinetyConverged", row, "m1_star_cov90", fmt_pct)
     _mean_lo_hi(macros, "mOnePitKsConverged", row, "m1_star_pit_ks", fmt_cov)
     macros["faithfulnessNInits"] = (
@@ -925,8 +924,8 @@ def build_comparison_gap_macros(gap_means):
             n_inits = row.get("n_inits")
         _mean_lo_hi(macros, f"gapNll{hour}Converged", row, "gap_nll", fmt_delta)
         # gap_smear is a difference between two off-mode cell-shares, so it gets
-        # the DEC-R40 fmt_pp (percentage-point) unit; gap_nll names NLL/N and
-        # stays a bare signed decimal by decision (harvey, 6 Jul).
+        # the fmt_pp (percentage-point) unit; gap_nll names NLL/N and
+        # stays a bare signed decimal.
         _mean_lo_hi(macros, f"gapSmear{hour}Converged", row, "gap_smear", fmt_pp)
     macros["comparisonNInits"] = str(int(n_inits)) if n_inits else PLACEHOLDER
     return macros
@@ -1223,9 +1222,9 @@ def build_compute_macros(record, timings):
     return out
 
 
-# ------------------------------------------- report-steering-plan lookup macros
-# (DEC-R44/R45/R51, 5 Jul): W1's ERA5-vs-anchors R~ trio, W2's three matched-lambda*
-# off-mode-fraction pairs, and W8's lambda=0 dominance numbers -- all read straight
+# ------------------------------------------- report lookup macros
+# The ERA5-vs-anchors R~ trio, the three matched-lambda* off-mode-fraction
+# pairs, and the lambda=0 dominance numbers -- all read straight
 # off the canonical +48h converged scores.csv rows (GLOBAL columns only, not the
 # `(bimodal)`-suffixed stratified ones), via the existing `_scores_row` lookup.
 STEERING_RTILDE_ROWS = (
@@ -1250,9 +1249,9 @@ STEERING_NLL_ROWS = (
 
 
 def build_steering_lookup_macros(run_dir):
-    """Pure-ish: canonical +48h `scores.csv` GLOBAL columns -> the report-steering-
-    plan's W1/W2/W8 macros (report_steering_plan.md Section 3, #2-9 and #15-19).
-    R~ at 4 d.p. except `\\fcIidRtilde` (3 d.p. by design, an approximate ~seed0
+    """Pure-ish: canonical +48h `scores.csv` GLOBAL columns -> the report's
+    lookup macros (R~ trio, matched-lambda* off-mode-fraction pairs, lambda=0
+    dominance numbers). R~ at 4 d.p. except `\\fcIidRtilde` (3 d.p. by design, an approximate ~seed0
     anchor); off-mode `frac>0.125` via the house `fmt_pct`; NLL/N at 4 d.p. with
     a leading ASCII minus, matching the existing `\\gap*` macro style. A row
     absent from the CSV -> em-dash placeholder for just that macro."""
@@ -1272,8 +1271,8 @@ def build_steering_lookup_macros(run_dir):
     return macros
 
 
-# ------------------------------------------------- W1 ERA5 roughness (computed)
-# The one COMPUTED steering macro (report_steering_plan.md #1): ERA5's own R~,
+# ------------------------------------------------- ERA5 roughness (computed)
+# The one computed lookup macro: ERA5's own R~,
 # via the SAME `scale_free_roughness` call the scores.csv rows were built from.
 # The mandatory cross-check re-runs the mode_map anchor through the identical
 # call and asserts it reproduces the mode_map R~ already in scores.csv (i.e.
@@ -1326,7 +1325,7 @@ def build_era5_roughness_macros(run_dir, graph_path):
 
 
 def build_budget_point_macros(run_dir):
-    """`budget_point.npz` -> the W3 faithfulness-budget operating point (DEC-R46).
+    """`budget_point.npz` -> the faithfulness-budget operating point.
 
     Reads the artifact written by `scripts/run_budget_point.py` (the single
     production Method 1 solve at the largest lambda keeping >= 95% of cells
@@ -1461,15 +1460,15 @@ def main():
     macros = {**macros, **build_compute_macros(
         json.loads(compute_record_path.read_text()) if compute_record_path.exists() else None,
         json.loads(timings_path.read_text()) if timings_path.exists() else None)}
-    # Report-steering-plan (5 Jul, DEC-R44/R45/R51): W1/W2/W8 lookup macros from
-    # the canonical +48h scores.csv, plus the one computed ERA5 roughness macro
-    # (with its mandatory mode_map convention cross-check).
+    # The report's lookup macros from the canonical +48h scores.csv, plus the
+    # one computed ERA5 roughness macro (with its mandatory mode_map convention
+    # cross-check).
     macros = {**macros, **build_steering_lookup_macros(
         args.runs_dir / "phase_4_fc48_14ep_step8")}
     macros = {**macros, **build_era5_roughness_macros(
         args.runs_dir / "phase_4_fc48_14ep_step8",
         args.runs_dir / "o96_knn_k8_graph.npz")}
-    # W3/DEC-R46: the faithfulness-budget operating point (lambda~19, >=95%
+    # The faithfulness-budget operating point (lambda~19, >=95%
     # within 0.125 nat), from the run_budget_point.py artifact.
     macros = {**macros, **build_budget_point_macros(
         args.runs_dir / "phase_4_fc48_14ep_step8")}

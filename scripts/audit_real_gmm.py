@@ -3,7 +3,7 @@
 
 Reads the converted .npz (see scripts/convert_real_gmm_pt_to_npz.py) with the
 research venv (numpy/scipy/matplotlib only — no torch) and prints the audit
-numbers quoted in research_notes/phase_4_data_audit.md:
+numbers:
 
   1. schema vs the 00b expectation, mu_channel/mu_2t alias checks
   2. sanity: weight sums, sigma positivity, NaN/Inf census, value ranges
@@ -108,7 +108,7 @@ def main():
     max_w = pi.max(axis=1)
     print(f"  pi softness (max weight per cell): median={np.median(max_w):.3f}  "
           f"p95={np.percentile(max_w, 95):.3f}  max={max_w.max():.3f}  "
-          f"(phase_1.md calibration target: median≈0.35, p95≈0.41, max≈0.49 on e3fz467m)")
+          f"(calibration target: median≈0.35, p95≈0.41, max≈0.49 on e3fz467m)")
 
     # ------------------------------------------------------------ degeneracy
     section("3. Degeneracy census (2t marginal)")

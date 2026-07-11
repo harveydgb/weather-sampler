@@ -1,9 +1,9 @@
 """Phase 4 evaluation protocol: strata, stratified scores, and the lambda* rule.
 
 Shared by the runner (`scripts/run_real_eval.py`), the report notebook, and
-the test suite so all three quote identical numbers. The protocol facts live in
-phase_4_plan.md (S5 diagnostics, S6 lambda-selection rule) and the data facts in
-phase_4_data_audit.md (S4 multimodality census, S5 grid). A global mean dilutes
+the test suite so all three quote identical numbers. The protocol covers the
+diagnostics and the lambda-selection rule; the data facts cover the
+multimodality census and the evaluation grid. A global mean dilutes
 the ~604-cell practically-bimodal subset ~67:1, so every metric is reported per
 stratum; the bimodal stratum is the headline read.
 """
@@ -133,7 +133,7 @@ def stratified_scores(field_values, nll_per_cell, edges, masks, delta_per_cell):
 
 
 def wrap_seam_ratio(field_values, latlons, edges, lon_threshold_deg=350.0):
-    """Date-line seam guard (phase_4_plan S4.9).
+    """Date-line seam guard.
 
     Mean edge-squared-diff over edges whose endpoints differ by more than
     `lon_threshold_deg` in longitude, divided by the all-edge mean. ~1 for a
@@ -166,7 +166,7 @@ class LambdaStarResult:
 
 
 def select_lambda_star(lambdas, r_tildes, collapsed, target_r_tilde, valid=None):
-    """Roughness-matching rule lambda* (phase_4_plan S6), total over its fallbacks.
+    """Roughness-matching rule lambda*, total over its fallbacks.
 
     (a) collapse-flagged rows are excluded (R-tilde undefined under collapse);
     (b) interpolation is linear in R-tilde vs **log lambda over positive lambda

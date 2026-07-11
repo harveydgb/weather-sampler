@@ -4,7 +4,7 @@
 comments and the internal artifact keys are exempt). (2) the two method macros in
 `macros.tex` expand to exactly the strings `sampler_research.plotting.DISPLAY_NAME`
 uses, so the figure legends and the report prose cannot drift apart. The canonical
-key -> display map is `research_notes/naming.md`.
+key -> display map is `sampler_research.plotting.DISPLAY_NAME`.
 """
 
 from __future__ import annotations

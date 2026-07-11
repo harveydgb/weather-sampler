@@ -1,6 +1,6 @@
 """Phase 4 port tests: real-marginal loader, sphere graph, flat paths, lambda*.
 
-Covers the edge-case list of phase_4_plan.md S4 plus the evaluation-protocol
+Covers the edge-case list for the real-data evaluation plan plus the evaluation-protocol
 unit tests. Real-data cases skip when the converted npz is absent (it is a
 local, gitignored artifact); toy regressions skip when the persisted Stage A/B
 artifacts are absent (regenerate via scripts/run_stage_*.py).

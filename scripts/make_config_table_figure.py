@@ -13,8 +13,8 @@ and notes (NOT results -- no macros involved):
                   per-stream at config/streams/era5_1deg/era5.yml:37
   forecast deltas gmm_forecast_config.yml:10--24 (header) + 209 (masking),
                   232--234 (forecast block), load_chkpt block
-  run lengths     research_notes/log.md:262 (AE 32 mini-epochs, me31 kept),
-                  log.md:199 (forecast 6 + 8 across two runs)
+  run lengths     AE 32 mini-epochs, me31 kept,
+                  forecast 6 + 8 across two runs
 
     .venv/bin/python scripts/make_config_table_figure.py
 """

@@ -32,7 +32,7 @@ def mixture_pdf(x, pi, mu, sigma):
 
 
 def gmm_log_pdf(x, pi, mu, sigma):
-    """Log GMM density `log p(x)` via a max-shifted logsumexp (phase_4_plan §1).
+    """Log GMM density `log p(x)` via a max-shifted logsumexp.
 
     Shape-agnostic: the mixture axis is the final axis of `pi`/`mu`/`sigma` and
     `x` carries every leading axis (`[N]` or `[H, W]`). Equals

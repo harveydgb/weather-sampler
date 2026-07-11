@@ -9,8 +9,8 @@ npz; no sampler run needed.
 
     .venv/bin/python scripts/run_forecast_softening.py
 
-Verification gate (the log used the same one): every CSV cell reproduces
-research_notes/log.md to displayed precision.
+Verification gate: every CSV cell reproduces the recorded values to displayed
+precision.
 """
 
 import argparse

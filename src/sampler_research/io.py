@@ -29,7 +29,7 @@ def load_sampler_arrays(path):
 
 
 def load_real_marginal(path):
-    """Load the 2t marginal of a converted real GMM `.npz` (phase_4_data_audit §1).
+    """Load the 2t marginal of a converted real GMM `.npz` file.
 
     Returns `{"pi": [N,K], "mu": [N,K], "sigma": [N,K], "latlons": [N,2]}`,
     all float64. Uses the precomputed `mu_2t`/`sigma_2t` aliases (audited

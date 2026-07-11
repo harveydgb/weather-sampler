@@ -13,10 +13,7 @@ The boundary is simple:
 - **The WeatherGenerator model** produces those mixtures. It is a *separate* codebase on a
   CSCS HPC system, is not redistributed here, and is what this manual covers.
 
-Everything below is procedure. The full evidence trail for each required change — the failing
-job, the diff, the log line — is recorded in
-the project engineering log; this manual links
-to it rather than repeating it.
+Everything below is procedure.
 
 ---
 
@@ -82,9 +79,8 @@ forecast initialisations anywhere in 2023 can be scored without leakage (see the
 ## 3. Required changes to the fork (the manual part)
 
 These are the changes needed to get the GMM head to train and emit on Clariden. They are
-listed here as reproduction steps; each links to the full symptom/root-cause/evidence entry
-in the project engineering log. None of them changes the
-science — they are platform and numerical-plumbing fixes.
+listed as reproduction steps, each with the symptom and root cause it fixes. None of them
+changes the science — they are platform and numerical-plumbing fixes.
 
 ### 3.1 Numerical stability in the GMM loss
 
@@ -100,8 +96,6 @@ to `NaN`:
   (~0.2 K for `2t`), replacing the `1e-6` literals in `GaussianMixtureDiag(...)` and
   `params_from_raw(...)`. This stops a component collapsing toward a delta spike, where the
   NLL gradient (`~1/σ³`) explodes.
-
-Full detail: engineering log, entry *"-INF loss → NaN weights"*.
 
 ### 3.2 Self-contained SLURM launchers
 
@@ -124,8 +118,6 @@ These launchers already contain:
   space, so the full option string is expanded in the launcher, not passed through the
   environment.
 - **`--time 12:00:00`** — the `normal` partition caps walltime at 12 h.
-
-Full detail: engineering log entries dated 2026-06-08.
 
 ### 3.3 Private config
 
@@ -160,8 +152,9 @@ bash scripts/launch_gmm_training.sh gmm_era5_32ep_v3
 This run reached mini-epoch 31 (~11.7 h) with a healthy **negative** validation NLL (≈ −0.40)
 before an NCCL watchdog fired on teardown; judge success by the last saved checkpoint
 (`chkpt00031`), which is the autoencoder used below. (The NCCL multi-rank teardown timeout is
-a known open issue — see the engineering log's OPEN entry — but it fires *after* the
-checkpoint is written, so it does not affect the artifact.)
+a known open issue — one rank stalls on a collective at the mini-epoch boundary and the
+600 s watchdog tears the whole job down — but it fires *after* the checkpoint is written,
+so it does not affect the artifact.)
 
 ### 4.2 Forecast (+48 h rollout) — `gmm_forecast_config.yml`
 
@@ -175,8 +168,9 @@ The forecast checkpoint used in the report was produced in **two runs** (a node 
 the first):
 
 ```bash
-# Run 1: warm-start from the autoencoder. Ended by a node failure at mini-epoch 6
-# (checkpoint gmm_fc48_v1 me5 = 6 mini-epochs) — the "6-epoch" column in the report.
+# Run 1: warm-start from the autoencoder. Submitted as 16 mini-epochs; a node
+# failure ended it during mini-epoch 6, leaving me5 as the last usable checkpoint
+# (gmm_fc48_v1 me5 = 6 mini-epochs) — the "6-epoch" column in the report.
 GMM_BASE_CONFIG=config/gmm_forecast_config.yml \
 bash scripts/launch_gmm_training.sh gmm_fc48_v1
 
@@ -223,7 +217,9 @@ Key points, all handled by `scripts/gmm_inference.py`:
 **Output file** `gmm_params_<run>_me<k>_2t_f8.pt` (~717 MB) is a nested dict containing, per
 lead: mixture weights `pi [N, K]`, means `mu [N, K, C]`, spreads `sigma [N, K, C]`,
 selected-channel `2t` marginals `[N, K]`, the target `latlons`, `valid_datetime`, and the
-de-standardisation constants `norm_mean` / `norm_std`.
+de-standardisation constants `norm_mean` / `norm_std`. Each emitted file was audited
+before use: no NaNs or infinities, component spreads in a physical range, and mixture
+weights summing to one at single precision.
 
 ### Scoring initialisations outside the Oct–Dec window
 
@@ -250,7 +246,9 @@ python scripts/convert_real_gmm_pt_to_npz.py   # WeatherGenerator .pt -> phase_4
 ```
 
 From here the sampler methods, evaluation, and figures are entirely within this repository;
-see [`README.md`](../README.md).
+see [`README.md`](../README.md). Everything downstream is deterministic given the emitted
+files: the regularised-MAP restarts derive from a fixed base seed, the independent-draw
+baseline uses a fixed seed list, and extraction itself is deterministic.
 
 ---
 
@@ -262,6 +260,5 @@ see [`README.md`](../README.md).
 | Forecast run 1 | `gmm_forecast_config.yml` | warm-start from AE me31 | ended by node failure at mini-epoch 6 | `gmm_fc48_v1` me5 (6-epoch column) |
 | Forecast run 2 | `gmm_forecast_config.yml` | warm-start from run 1 me5 | +8 mini-epochs | `gmm_fc48_v2` me7 (14-epoch, final) |
 
-All numbers and metric definitions the report quotes from these artifacts have their canonical
-home in the project research log; all platform/numerical fixes in
-the project engineering log.
+All numbers the report quotes from these artifacts are emitted and regression-tested by
+`scripts/emit_report_results.py`.

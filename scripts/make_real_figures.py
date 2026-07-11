@@ -1,4 +1,4 @@
-"""Phase 4 report figures from the persisted runner artifacts (phase_4_plan S5).
+"""Phase 4 report figures from the persisted runner artifacts.
 
 Run after `scripts/run_real_eval.py` (all stages + --lambda-star):
 
@@ -200,8 +200,8 @@ def _method_map_fields(star):
     with np.load(RUN_DIR / "method1_sensitivity.npz") as f:
         fields[f"Joint MAP ($\\lambda^\\star$={star['lambda_star']:.0f})"] = f["field_star"]
     fields["Smoothed MAP (n=10)"] = smoothed_map_n10
-    # W3 (DEC-R46): when the faithfulness-budget solve exists for this run, its
-    # panel REPLACES the Mode-selection MRF panel -- at +48h the MRF is
+    # The faithfulness-budget operating point: when its solve exists for this run,
+    # its panel REPLACES the Mode-selection MRF panel -- at +48h the MRF is
     # degenerate (every beta returns essentially the Per-cell MAP field, so the
     # panel duplicates information; the MRF keeps its pareto-smear point and
     # spectrum curve). Regimes without budget_point.npz keep the MRF panel.
@@ -632,7 +632,8 @@ def fig_variogram():
 
 
 # The main-text +48h spectrum shows exactly the methods that appear as panels in
-# fig:fc-maps (W3/DEC-R46), in the same panel order. The two mid-band duplicates
+# the field-maps figure (the faithfulness-budget operating point included), in
+# the same panel order. The two mid-band duplicates
 # (Mixture mean and Mode-selection MRF) are dropped -- at +48h the MRF is
 # degenerate onto Per-cell MAP and neither has a maps panel -- so the coherence
 # figure and the field-maps figure carry an identical method set. Colour encodes

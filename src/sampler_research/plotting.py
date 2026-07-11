@@ -210,7 +210,7 @@ def plot_spectra(ell, spectra, *, title, era5_key=ERA5_KEY, labels=None,
     field is the over-smooth extreme (lower), the sampler siblings sit between and
     below iid at high l. The ERA5 series (if present) is drawn as a THIN grey
     dashed reference line LAST -- direction-of-realism only, never a target. There
-    is no GMM-derivable target spectrum (large_notes open problem). Returns
+    is no GMM-derivable target spectrum (open problem). Returns
     ``(fig, ax)``.
 
     ``labels`` optionally overrides the legend text for specific keys (e.g. a

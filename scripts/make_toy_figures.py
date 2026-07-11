@@ -31,8 +31,7 @@ old notebook exports so the report no longer depends on notebook execution
       A display-name re-render of the retired notebook export of the same
       name, read from the same persisted stage_* artifacts.
   phase_1_component_fields.png
-      The four slowly-varying quadratic component-mean sheets
-      (`research_notes/phase_1.md` "Component-mean surfaces"), read straight
+      The four slowly-varying quadratic component-mean sheets, read straight
       from the toy `.npz` -- no stage run required. Report re-render of
       notebook 00's debug-only `plot_component_fields` panel, with report
       framing: panels titled "Surface k" / "centre = (a, b)", no
@@ -42,9 +41,8 @@ old notebook exports so the report no longer depends on notebook execution
       Mixture mean, Smoothed MAP, Smoothest faithful ($a^\star$) -- each
       panel titled with its (former) Table 4.1 display name and its NLL/N +
       R~ scores to 3 d.p. (matching the `toy*` macros). This figure now
-      REPLACES Table 4.1 in the report (`fig:toy-baselines`, was
-      `tab:toy-baselines`) rather than duplicating it, so it carries no
-      suptitle -- the caption in `report/thesis.tex` names it. Report
+      REPLACES Table 4.1 in the report rather than duplicating it, so it
+      carries no suptitle -- the caption in the report names it. Report
       re-render of notebook 02's "Stage A anchors" field-map row, extended
       from four panels to the former table's full five rows (adds Mixture
       mean). Panel order/names mirror TOY_BASELINES in emit_report_results.py,
@@ -349,8 +347,7 @@ def fig_pareto_plane(art, fig_dir=FIG_DIR):
     # TV (Adam) is intentionally omitted from this main-text figure: it is
     # confounded (fails its own min-cut optimality certificate below lambda=0.2)
     # and dominated on this plane. The arm is still produced by the pipeline
-    # (run_tv_ablation.py) and may appear in Appendix F; see
-    # research_notes/phase_2.md and report_plan.md for the rationale.
+    # (run_tv_ablation.py) and may appear in Appendix F.
 
     # TV (exact) min-cut frontier; variance-collapsed points (lambda >= 2) have
     # an undefined R~ and are excluded, exactly as in the notebook. Drawn with
@@ -383,7 +380,7 @@ def fig_pareto_plane(art, fig_dir=FIG_DIR):
     ax.set_ylabel("NLL/$N$ (nats)")
     # Title names the plane and the reading direction only; the interpretive
     # findings (TV collapse, the quadratic reaching R~ ~= 0.25) live in the
-    # report caption (fig:toy-tv-pareto in report/thesis.tex).
+    # report caption.
     ax.set_title("Faithfulness–coherence plane (lower-left is better)")
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=TOY_LEGEND_FONTSIZE)
@@ -535,11 +532,11 @@ def fig_component_fields(art, fig_dir=FIG_DIR):
 
     Report re-render of notebook 00's debug-only `plotting.plot_component_fields`
     panel (`component_fields` is shared bit-for-bit between the homoscedastic
-    and heteroscedastic toys -- see `phase_1.md` "Reproducibility" -- so reading
-    the homoscedastic `.npz` covers both). Differs from the notebook version in
+    and heteroscedastic toys by construction, so reading the homoscedastic
+    `.npz` covers both). Differs from the notebook version in
     report framing only: panels read "Surface k" / "centre = (a, b)" (was
     "component k" / "(a, b) = (...)"), there is no figure suptitle (the caption
-    in `report/thesis.tex` carries that role), and the shared colorbar is sized
+    in the report carries that role), and the shared colorbar is sized
     to the panel row's own drawn height rather than the full multi-axes
     bounding box (which overshoots the panels once two-line titles are added).
     """
@@ -601,9 +598,8 @@ TOY_BASELINE_LABELS = [
 def fig_stage_a_baselines(art, fig_dir=FIG_DIR):
     """Five Stage A reference fields -> phase_2_stage_a_baselines.png.
 
-    Report re-render of notebook 02's "Stage A anchors" field-map row
-    (`research_notes/phase_2.md` sec 1 / thesis.tex sec:baselines), extended
-    from four panels to all five former-Table-4.1 rows (adds Mixture mean).
+    Report re-render of notebook 02's "Stage A anchors" field-map row,
+    extended from four panels to all five former-Table-4.1 rows (adds Mixture mean).
     This figure now REPLACES that table in the report (`fig:toy-baselines`),
     so it carries the same NLL/N + R~ numbers plus the fields themselves.
     Panel order and titles are TOY_BASELINE_LABELS -- the former table's own

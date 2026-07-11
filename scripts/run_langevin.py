@@ -1,10 +1,9 @@
-"""HISTORICAL (archived 11 Jun 2026) — Stage D closed: "nothing moved".
+"""Archived ablation — the Langevin search check. Closed: "nothing moved".
 
-CUT from the real-data path per phase_4_plan.md "Scope verdicts": every |ΔJ| sat
-within the Stage B restart band, so Method 1's optimiser is validated and re-running
-at scale answers no open question. The verdict lives in large_notes.md (Phase 2
-status) / phase_2.md; the energy-delta table is persisted under
-outputs/runs/stage_d_method5_langevin/. Re-runnable on the toy only.
+Every |ΔJ| sat within the restart band — the single flagged difference
+(ΔJ = -0.0281) inside its own chain-to-chain spread of 0.031 — so the
+regularised-MAP optimiser is validated and re-running at scale answers no open
+question. Re-runnable on the toy only.
 
 Stage D — Method 5 as a Method 1 stochastic-search / robustness ablation.
 
@@ -12,8 +11,8 @@ Run from the repo root with the local (numpy-only) venv:
 
     .venv/bin/python scripts/run_langevin.py
 
-Method 5 is **not** a third sampler family (phase_2_research_plan.md §4.3,
-DEFERRED→ensemble). It runs annealed-noise Langevin **search** on Method 1's
+Method 5 is **not** a third sampler family — it is infrastructure, deferred
+to the ensemble extension. It runs annealed-noise Langevin **search** on Method 1's
 *exact* energy `J_lambda` and gradient, then deterministically polishes each
 chain's lowest-energy snapshot with Method 1's Adam descent and keeps the
 lowest-energy polished field. So it is Method 1 with a harder search procedure,

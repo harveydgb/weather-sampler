@@ -1,9 +1,8 @@
 """Method 1 — regularised MAP / Lagrangian (Phase 2 Stage B).
 
-Implements the *swept-lambda regularised* form decided in
-phase_2_research_plan.md §3.3 / §4.1 (the strict constrained/KKT form and the
-Langevin layer are explicitly out of scope — §4.1.7). The objective, in the
-per-cell / per-edge units of §3.1a, is
+Implements the *swept-lambda regularised* form (the strict constrained/KKT form
+and the Langevin layer are explicitly out of scope). The objective, in the
+per-cell / per-edge units, is
 
     J_lambda(x) = NLL(x)/N + lambda * (x^T L x) / |E_8|
 

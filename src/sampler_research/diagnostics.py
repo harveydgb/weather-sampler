@@ -102,12 +102,12 @@ def sampled_spherical_variogram(
 # Angular power spectrum C_l on the O96 reduced-Gaussian sphere.
 #
 # RUNG-3 BRACKET DIAGNOSTIC ONLY. There is no GMM-derivable *target* spectrum
-# (large_notes.md open problem ~S312): the decoder emits independent per-location
+# (an open problem): the decoder emits independent per-location
 # GMMs and discards spatial covariance by Working Decision #4, so the target
 # spectrum is exactly the thrown-away information. C_l is read as a one-sided
 # bracket (iid white floor above / mixture-mean over-smooth below; samplers
 # between, and below iid at high l) -- never an optimisation target, never
-# validation. See research_notes/plans/spectrum_era5_plan.md.
+# validation.
 #
 # The ducc0 engine applies the spherical-harmonic analysis on the native O96
 # iso-latitude rings. We never regrid to lat-lon because a regrid would low-pass
@@ -374,8 +374,8 @@ def sampled_spherical_power_spectrum(
 
     Uses the open-source ducc0 spherical-harmonic transform on the native O96
     reduced-Gaussian rings by default, with NO lat-lon regrid. RUNG-3 bracket
-    diagnostic only -- there is no GMM-derivable target spectrum (large_notes
-    ~S312). Not an optimisation target, not validation; the ERA5 reference
+    diagnostic only -- there is no GMM-derivable target spectrum (open problem).
+    Not an optimisation target, not validation; the ERA5 reference
     (added by the caller as an extra series) is a direction-of-realism reference,
     never a target.
 

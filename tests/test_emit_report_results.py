@@ -136,8 +136,8 @@ def test_tables_render_rows_and_dagger():
     faith_tbl = m.build_faithfulness_table(FAITH, SOFT)
     # 29 Jun table review: the all-zero do-no-harm ΔCRPS column is dropped to the
     # caption null; the misread-prone "M1 cov." header is renamed "marg.-pos.".
-    # DEC-R28 (3 Jul): the PIT-KS columns are dropped too — CRPS and PIT-KS are out
-    # of the report; only the central marginal-position coverage is tabulated.
+    # The PIT-KS columns are dropped too — CRPS and PIT-KS are out of the report;
+    # only the central marginal-position coverage is tabulated.
     assert r"marg.-pos." in faith_tbl and "M1" not in faith_tbl
     assert r"91.0\%" in faith_tbl and r"88.0\%" in faith_tbl   # cov90 (6ep, 14ep)
     assert "PIT KS" not in faith_tbl                        # no PIT-KS columns
@@ -215,7 +215,7 @@ def test_build_spectrum_macros_pins_era5_bracket():
     them to the current artifact: the worst-case large-scale agreement is 0.054
     decades (JointMAP, every field at or below it) and ERA5 carries ~173x JointMAP's
     fine-scale band power. The ratio moved 199 -> 173 when spectra.npz was regenerated
-    on 6 Jul with the m1_budget curve; DEC-R61(a) accepts the artifact-traceable 173.
+    with the m1_budget curve; the artifact-traceable 173 is the accepted value.
     A pipeline change that moved either would fail here before the committed macro
     could silently drift from the prose."""
     m = _load()
@@ -900,11 +900,10 @@ GRAPH_PATH = REPO_ROOT / "outputs" / "runs" / "o96_knn_k8_graph.npz"
 
 
 @needs_fc_converged
-def test_build_steering_lookup_macros_pin_report_steering_plan_values():
-    """Report-steering-plan (5 Jul) macros #2-9 and #15-19: the W1 R~ trio, the
-    W2 three matched-lambda* off-mode-fraction pairs, and the W8 lambda=0
-    dominance numbers, all read from the canonical +48h scores.csv GLOBAL
-    columns. `\\fcSmearBlurNTwenty` pins to the artifact's own rounding
+def test_build_steering_lookup_macros_pin_expected_values():
+    """Steering-lookup macros: the R~ trio, three matched-lambda* off-mode-fraction
+    pairs, and the lambda=0 dominance numbers, all read from the canonical +48h
+    scores.csv GLOBAL columns. `\\fcSmearBlurNTwenty` pins to the artifact's own rounding
     (46.5%), not the plan draft's 46.6% transcription -- the ~2.5x ratio to
     `\\fcSmearDoubleStar` (18.6%) is unaffected either way."""
     m = _load()
@@ -936,8 +935,8 @@ def test_build_steering_lookup_macros_placeholders_when_absent(tmp_path):
 
 @needs_fc_converged
 def test_build_era5_roughness_macros_pins_value_and_crosschecks_mode_map():
-    """W1's one computed macro: ERA5's own R~ via scale_free_roughness, pinned
-    to 0.0215 (report_steering_plan.md #1). The builder's mandatory cross-check
+    """ERA5's own R~ via scale_free_roughness, pinned to 0.0215. The builder's
+    mandatory cross-check
     (mode_map through the identical call == scores.csv's mode_map r_tilde) is
     re-asserted here directly against the persisted anchor + graph, so this
     test fails loudly if the convention the ERA5 number relies on ever drifts."""
@@ -964,10 +963,10 @@ def test_build_era5_roughness_macros_placeholder_when_absent(tmp_path):
 
 @needs_fc_budget
 def test_build_budget_point_macros_pin_dec_r46_values():
-    """W3's faithfulness-budget operating point (DEC-R46): the single production
+    """The faithfulness-budget operating point: the single production
     solve at the largest lambda keeping >= 95% of cells within 0.125 nat of
     their best peak. Pins the budget_point.npz artifact written by
-    scripts/run_budget_point.py on 5 Jul (lambda 18.99 -> 19.0, achieved
+    scripts/run_budget_point.py (lambda 18.99 -> 19.0, achieved
     off-mode 4.61% within the +-0.5 pp tolerance of the 5% budget,
     R~ 0.00480). The keep-percent constant is read from the artifact's own
     keep_frac, never re-typed."""

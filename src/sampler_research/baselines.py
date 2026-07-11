@@ -29,7 +29,7 @@ def gmm_nll_per_cell(field, pi, mu, sigma):
     Shape-agnostic: `field` is `[H, W]` or `[N]` with the mixture axis last on
     `pi`/`mu`/`sigma`. Computed in log space (`-gmm_log_pdf`) so smeared fields
     at separated-mode cells cannot underflow; equals the previous linear-space
-    value to 1e-10 on sane toy fields (phase_4_plan §1).
+    value to 1e-10 on sane toy fields.
     """
 
     return -gmm_log_pdf(field, pi, mu, sigma)

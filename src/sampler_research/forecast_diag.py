@@ -1,6 +1,6 @@
 """Forecast-regime softening diagnostics on the emitted per-location GMMs.
 
-The RQ1 headline (research_notes/log.md 2026-06-12 / 2026-06-13): the head's
+The headline result: the head's
 mixture weights soften monotonically with forecast lead time. This module is the
 single tested home for the *pinned* softening metrics those log entries define,
 so the report, the notebook, and the test suite all quote one implementation.

@@ -1,7 +1,7 @@
 """Method 4 — mode extraction + value-space MRF (Phase 2 Stage C).
 
-Implements the explicitly mode-conditioned single-field route of
-phase_2_research_plan.md §4.2: extract each location's GMM density peaks
+Implements the explicitly mode-conditioned single-field route: extract each
+location's GMM density peaks
 (modes), then pick one spatially coherent mode per cell by minimising a unary
 likelihood + value-space pairwise smoothness energy over the (<=K) modes. The
 pairwise term couples on mode *values*, never on the label index (C5), and the
@@ -32,7 +32,7 @@ The mean-shift mode finder iterates the *heteroscedastic* stationary point
 
     v <- (sum_k r_k(v) mu_{ik} / sigma_{ik}^2) / (sum_k r_k(v) / sigma_{ik}^2)
 
-which is the exact zero of `p'(v)` for per-component sigma (phase_4_plan §3).
+which is the exact zero of `p'(v)` for per-component sigma.
 When sigma is component-shared within a cell it reduces algebraically to the
 shared-sigma fixed point `v <- sum_k r_k(v) mu_{ik}` (Carreira-Perpinan 2000)
 used previously, so both Phase 1 toys reproduce bit-near. For per-component
@@ -53,11 +53,10 @@ from sampler_research.graph import grid_edges_8, roughness_edge_mean, scale_free
 from sampler_research.spectral import spectral_roughness
 
 # Working drift thresholds for the non-smearing diagnostic, in NLL nats.
-# DERIVED (v1) from the sigma-unit epsilon reasoning at large_notes.md:260:
+# Derived from the sigma-unit epsilon reasoning:
 # near a mode `ΔNLL ≈ ½ z²`, so a `0.5σ` drift ⇒ ε ≈ 0.125 and a `1σ` drift ⇒
-# ε ≈ 0.5. There they are *illustrative examples* for choosing ε, NOT locked
-# Phase-3 thresholds (they are not in phase_3.md). Kept parameterised and
-# labelled "v1" until/unless a phase spec promotes them.
+# ε ≈ 0.5. These are *illustrative examples* for choosing ε, NOT locked
+# thresholds. Kept parameterised and labelled "v1" until/unless a spec promotes them.
 DRIFT_THRESHOLDS_V1 = (0.125, 0.5)
 
 
