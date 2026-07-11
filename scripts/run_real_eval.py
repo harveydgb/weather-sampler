@@ -640,7 +640,7 @@ def _collect_fields(out_dir):
 def _maybe_load_era5_reference(regime, latlons, out_dir, args):
     """ERA5 rung-3 direction-of-realism reference, or None on ANY failure.
 
-    Never raises into the runner (cut criterion C4, spectrum_era5_plan S8): on
+    Never raises into the runner (cut criterion C4): on
     --no-era5, a missing valid_datetime, missing data access, or a grid mismatch,
     it logs `[scores] ERA5 reference skipped: <reason>` and returns None so the
     spectrum and variogram still ship sample-only. ERA5 is a *direction*
@@ -862,8 +862,8 @@ def stage_scores(data, out_dir, args):
     if budget is not None:
         spec_fields["m1_budget"] = budget
 
-    # Native O96 angular power spectrum (rung-3 bracket diagnostic;
-    # spectrum_era5_plan.md). Default engine is the validated pure-numpy SHT.
+    # Native O96 angular power spectrum (rung-3 bracket diagnostic).
+    # Default engine is the validated pure-numpy SHT.
     lmax_resolved, spectra_s = _write_spectra(out_dir, latlons, spec_fields)
     _update_timings(
         out_dir, scores_s=scores_s, variograms_s=variograms_s, spectra_s=spectra_s,

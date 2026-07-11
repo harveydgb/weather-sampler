@@ -15,7 +15,7 @@ The code is organised by what each part does:
 - a small synthetic **toy** model that reproduces the per-location-mixture setting on a
   controlled 8×8 grid;
 - **baselines** — independent draw, per-cell MAP, smoothed MAP, mixture mean;
-- two samplers — a **regularised MAP** (a smoothness-penalised joint objective) and a
+- two samplers — a **Joint MAP** (a smoothness-penalised joint objective) and a
   **mode-selection MRF** (discrete mode assignment via a Markov random field);
 - **evaluation** on the real ERA5 2-metre-temperature field on the native O96 grid
   (40,320 locations);

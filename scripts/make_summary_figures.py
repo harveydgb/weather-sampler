@@ -83,8 +83,8 @@ SOFTENING_PREFIX = "phase_4_fc48_14ep"
 SOFTENING_STEPS = range(1, 9)  # +6h .. +48h, one npz per lead step
 OUT_DIR = REPO_ROOT / "outputs" / "figures" / "summary"
 
-# Report macro values these figures must reproduce (research_notes cross-check,
-# see report/construction/macros-results.tex \oneHotSixHourConverged /
+# Report macro values these figures must reproduce (see
+# report/construction/macros-results.tex \oneHotSixHourConverged /
 # \oneHotFortyEightConverged).
 EXPECTED_ONE_HOT_SIX_HOUR = 67.9
 EXPECTED_ONE_HOT_FORTY_EIGHT_HOUR = 9.3
@@ -204,11 +204,13 @@ def fig_hook(box, lon_b, lat_b):
     ):
         sc = _draw_panel(ax, lon_b, lat_b, values, marker_sizes, vmin, vmax, title)
     fig.subplots_adjust(left=0.02, right=0.86, bottom=0.03, top=0.87, wspace=0.12)
-    # Automatic multi-axes colorbar placement (rather than the reference
-    # scripts' manual canvas.draw()+get_position() height-matching): at this
-    # figure's much smaller natural size, a hand-placed colorbar axis is too
-    # short to fit the long rotated label without clipping it.
-    cbar = fig.colorbar(sc, ax=axes.tolist(), fraction=0.06, pad=0.03, aspect=22)
+    # Height-matched colorbar (as in make_hook_figure.py): realise the
+    # aspect-constrained geometry with a draw, then size the bar to the right
+    # panel's actual box; bbox_inches="tight" keeps the rotated label unclipped.
+    fig.canvas.draw()
+    panel = axes[1].get_position()
+    cbar_ax = fig.add_axes([0.875, panel.y0, 0.018, panel.height])
+    cbar = fig.colorbar(sc, cax=cbar_ax)
     cbar.set_label(COLORBAR_LABEL, fontsize=AXIS_LABEL_FONTSIZE)
     cbar.ax.tick_params(labelsize=TICK_LABEL_FONTSIZE)
 
@@ -247,11 +249,24 @@ def fig_fields(box, lon_b, lat_b):
     sc = None
     for ax, (title, values) in zip(axes.reshape(-1), panels):
         sc = _draw_panel(ax, lon_b, lat_b, values[box], marker_sizes, vmin, vmax, title)
-    fig.subplots_adjust(left=0.02, right=0.87, bottom=0.02, top=0.94, wspace=0.16, hspace=0.08)
-    # Automatic multi-axes colorbar placement (see fig_hook for why -- a
-    # hand-placed colorbar axis is too short at this figure's natural size to
-    # fit the long rotated label without clipping it).
-    cbar = fig.colorbar(sc, ax=axes.reshape(-1).tolist(), fraction=0.045, pad=0.03, aspect=32)
+    # Aspect-locked panels centre inside their grid boxes, opening a wide blank
+    # band between the rows; anchor the top row down and the bottom row up so
+    # the rows meet at a gap set by hspace alone (sized for the row-2 titles).
+    for ax in axes[0]:
+        ax.set_anchor("S")
+    for ax in axes[1]:
+        ax.set_anchor("N")
+    fig.subplots_adjust(left=0.02, right=0.87, bottom=0.02, top=0.94, wspace=0.16, hspace=0.2)
+    # Height-matched colorbar spanning both diagram rows (see fig_hook):
+    # realise the aspect-constrained geometry with a draw, then size the bar
+    # from the bottom-right panel's base to the top-right panel's top.
+    fig.canvas.draw()
+    top_panel = axes[0][1].get_position()
+    bottom_panel = axes[1][1].get_position()
+    cbar_ax = fig.add_axes(
+        [0.885, bottom_panel.y0, 0.018, top_panel.y1 - bottom_panel.y0]
+    )
+    cbar = fig.colorbar(sc, cax=cbar_ax)
     cbar.set_label(COLORBAR_LABEL, fontsize=AXIS_LABEL_FONTSIZE)
     cbar.ax.tick_params(labelsize=TICK_LABEL_FONTSIZE)
 

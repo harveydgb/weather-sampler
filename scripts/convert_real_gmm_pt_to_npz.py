@@ -34,7 +34,7 @@ import torch
 
 # Import the torch-free forecast writer from the package so it stays unit-testable
 # in the research venv (this script's torch dependency does not reach it).
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sampler_research" / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from sampler_research.io import write_forecast_marginals  # noqa: E402
 
 SRC = Path("~/model_outputs").expanduser()

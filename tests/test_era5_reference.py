@@ -1,5 +1,4 @@
-"""Unit tests for the ERA5 reference loader's grid-alignment (spectrum_era5_plan
-S8 / cut criterion C4).
+"""Unit tests for the ERA5 reference loader's grid-alignment (cut criterion C4).
 
 The ERA5 anemoi stream is the SAME O96 grid as the extracted samples but in a
 different point order; `_match_permutation` must recover the exact reorder (no

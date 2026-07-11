@@ -23,15 +23,17 @@
 \newcommand{\summaryauthor}{Harvey Bermingham}
 \newcommand{\summaryprogramme}{MPhil Data Intensive Science}
 \newcommand{\summaryinstitution}{University of Cambridge}
-\newcommand{\summarywordcount}{\todo{insert final word count}}
+\newcommand{\summarywordcount}{975}
 \newcommand{\summarylimit}{1,000 words}
 
 \newif\ifshowwordcount
-% The reference summary does not show a word-count line. REQUIREMENTS.md makes a
-% front-cover word count mandatory, while the writing checklist applies that to
-% both report and summary; keep this false unless Sophie / the handbook confirms
-% the executive summary needs it too.
-\showwordcountfalse
+% Front-cover word count is mandatory on BOTH documents (REQUIREMENTS.md; omission =
+% automatic mark loss), so it is shown here. The value is the official texcount:
+% `texcount -merge summary.tex` from executive-summary/ reports "Words in text: 975"
+% (headers add 10; the thesis-cover convention decides whether those 10 are included
+% — set both covers by the same rule at the final build). Re-run texcount if the
+% summary prose changes.
+\showwordcounttrue
 
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{0pt}
@@ -97,15 +99,16 @@ its own, and the model holds no covariance between locations. Sampling each loca
 independently therefore gives a noisy field unlike any real weather pattern
 (Figure~\ref{fig:sum-hook}).
 
-Many of the quantities forecasts exist to provide also belong to a whole field rather
+Many of the quantities forecasts exist to provide belong to a whole field rather
 than a single location, such as the total rainfall over a river catchment, and each
 depends on how locations vary together, so it can only be drawn from a field that
-could actually occur. This research supplies that missing step for the WeatherGenerator's Gaussian-mixture
-branch, assembling its independently produced mixtures into one coherent field.
+could actually occur. This research supplies that missing step for this
+Gaussian-mixture branch, assembling its independently produced mixtures into one
+coherent field.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=\linewidth]{fig_hook_noise_vs_structure.png}
+  \includegraphics[width=\linewidth]{summary/summary_hook.png}
   \caption{A field drawn independently from each location's emitted mixture (left)
   carries fine-scale noise that no real weather field shows, whereas the ERA5
   \cite{hersbach2020era5} record of 2-metre temperature on the same grid (right) varies
@@ -121,32 +124,32 @@ requirements. Each
 chosen value must stay plausible under its own location's mixture, and neighbouring
 values must vary smoothly across the grid. The smoothness is a prior we assume and
 impose on the method, not a recovery of the covariance the model discarded. The
-research takes the emitted mixtures as fixed input, and it is not itself a forecasting
+research takes the emitted mixtures as fixed input. It is not itself a forecasting
 model and does not aim to improve forecast accuracy. The strength of the smoothing can
 be varied to suit the use. For comparison it is tuned to a fixed reference, so
-competing methods are judged at the same smoothness rather than any setting being
-treated as the correct one.
+competing methods are judged at the same smoothness, with no setting treated as
+correct.
 
 The sampler was first exercised on a small synthetically constructed testbed whose
 mixtures are specified in advance, so the coherent underlying distributions are known
-and give direct context on how successfully the sampler rebuilds a field. Its independently
+and give context on how successfully the sampler rebuilds a field. Its independently
 drawn mixture weights also make it a demanding case, with few locations holding one
 dominant value. The sampler was then tested on real 48-hour temperature forecasts
 across roughly forty thousand grid locations covering the globe, from
-\comparisonNInits{} start dates spanning the seasons of 2023, which lies outside the
-model's training period.
+\comparisonNInits{} start dates spanning the seasons of 2023, outside the model's
+training period.
 
 \section*{Key Findings}
 
 The sampled fields were compared against several baselines, from an independent draw at
-each location to a smoothed field of the single most likely values.
+each location to a smoothed field of most likely values.
 At the same smoothness the sampler was found to keep far more locations on values the
 model itself rates plausible, with the smoothed baseline leaving \fcSmearBlurNTen{} of locations on
 unlikely in-between values against the sampler's \fcSmearStar{}, roughly two and a half
 times as many.
 
 The advantage concentrates where the forecast is genuinely uncertain, at locations
-whose mixture holds two distinct plausible outcomes separated by a low-probability gap,
+whose mixture holds two distinct outcomes separated by a low-probability gap,
 a front arriving or not, rather than one wide overlapping spread. Within those
 locations the smoothed baseline pushes \fcBimodalFracBlur{} of values into the unlikely
 middle ground between the two outcomes (\bootstrapCIPct\% interval
@@ -155,36 +158,35 @@ middle ground between the two outcomes (\bootstrapCIPct\% interval
 ordering that held on all \comparisonNInits{} start dates.
 Additionally, nearly every value the sampler selects sits centrally within its own
 mixture, \mOneCovNinetyConvergedMean{} of locations falling in the central 90\% band
-(\mOneCovNinetyConvergedLo{} to \mOneCovNinetyConvergedHi{} across start dates). This
+([\mOneCovNinetyConvergedLo{}, \mOneCovNinetyConvergedHi] across start dates). This
 checks each value against its own predicted distribution, not the calibration of
 forecast probabilities against observed weather.
 
-Such situations become more common as the forecast reaches further ahead. Locations
-effectively certain of one value fall from \oneHotSixHourConverged{} at six hours to
-\oneHotFortyEightConverged{} at 48 hours, and locations holding two well-separated
-outcomes grow from \bimodalTwoSigmaSixHourConverged{} to
-\bimodalTwoSigmaFortyEightConverged{}, so the conditions where the sampler is most
-valuable grow with forecast range. Figure~\ref{fig:sum-maps} shows the
+Such situations become more common further ahead. Locations effectively certain of one
+value fall from \oneHotSixHourConverged{} at six hours to \oneHotFortyEightConverged{}
+at 48 hours, whilst locations holding two well-separated outcomes grow from
+\bimodalTwoSigmaSixHourConverged{} to \bimodalTwoSigmaFortyEightConverged{}, so the
+conditions where the sampler matters most grow with range. Figure~\ref{fig:sum-maps} shows the
 sampled fields beside the ERA5 record of what actually occurred.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=\linewidth]{phase_4_fc48_14ep_step8/phase_4_region_maps.png}
+  \includegraphics[width=\linewidth]{summary/summary_fields.png}
   \caption{Sampled 48-hour temperature fields for one 2023 start date over the North
-  Atlantic and Europe, in standardised units. Top row, the field of most likely values
-  and an independent draw. Middle row, the sampler developed here (Joint MAP) beside
-  the smoothed baseline at the same smoothness. Bottom row, the sampler at a lighter
-  smoothing setting and the corresponding ERA5 field.}
+  Atlantic and Europe, in standardised units. Sampling each location separately is
+  noisy (top left), whereas Joint MAP (top right) and the smoothed baseline (bottom
+  left) are equally smooth by construction, and the corresponding ERA5 field (bottom
+  right) shows the weather that occurred.}
   \label{fig:sum-maps}
 \end{figure}
 
 \section*{Impact \& Limitations}
 
 This research provides a sampling method and evaluation architecture for
-WeatherGenerator's Gaussian-mixture branch that were not previously built, and both
-apply to any future model on the branch. More broadly, a coherent field is what
-lets this style of forecast answer the field-level questions raised above. The step is cheap, the full evaluation completing in about
-\computeAuditWallSeconds{} seconds on one processor.
+WeatherGenerator's Gaussian-mixture branch that were not previously built, both
+applying to any future model on the branch. More broadly, a coherent field is what
+lets this style of forecast answer the field-level questions raised above. The full
+evaluation runs in about \computeAuditWallSeconds{} seconds on one processor.
 
 This research uses only one weather variable, 2-metre temperature, one spatial
 resolution and one model branch. The model

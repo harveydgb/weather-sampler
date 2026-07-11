@@ -1,4 +1,4 @@
-"""Chapter 1 motivation hook figure (report_plan §4 row 1.1).
+"""Chapter 1 motivation hook figure.
 
 Two O96 Mollweide panels on a shared colour scale, built from the same
 persisted +48 h artifacts as the main-text maps figure (no new sampling):
@@ -70,6 +70,18 @@ def _load():
     return latlons, iid, era5
 
 
+def _required_coastline_segments():
+    segments = _natural_earth_coastline_segments()
+    if not segments:
+        raise RuntimeError(
+            "Natural Earth coastline layer unavailable; install the plotting "
+            "requirements, including pyshp, and check that "
+            "outputs/data/natural_earth/ne_110m_coastline.shp exists before "
+            "rendering Figure 1.1."
+        )
+    return segments
+
+
 def make_global(latlons, iid, era5):
     fields = {TITLE_NOISE: iid, TITLE_STRUCTURE: era5}
     fig, _ = plot_mollweide_fields(latlons, fields, suptitle="", ncols=2)
@@ -78,7 +90,7 @@ def make_global(latlons, iid, era5):
     print(f"wrote {OUT_GLOBAL.relative_to(REPO_ROOT)}")
 
 
-def make_region(latlons, iid, era5):
+def make_region(latlons, iid, era5, coastline_segments):
     lats = latlons[:, 0]
     lons = _wrap_longitudes(latlons[:, 1])
     box = (lons >= LON_MIN) & (lons <= LON_MAX) & (lats >= LAT_MIN) & (lats <= LAT_MAX)
@@ -99,7 +111,7 @@ def make_region(latlons, iid, era5):
             lon_b, lat_b, c=field, s=marker_sizes, cmap="RdBu_r", vmin=vmin, vmax=vmax,
             rasterized=True, zorder=2,
         )
-        for seg_lon, seg_lat in _natural_earth_coastline_segments():
+        for seg_lon, seg_lat in coastline_segments:
             ax.plot(seg_lon, seg_lat, color="0.08", lw=0.9, alpha=0.85, zorder=3)
         ax.set_xlim(LON_MIN, LON_MAX)
         ax.set_ylim(LAT_MIN, LAT_MAX)
@@ -121,8 +133,9 @@ def make_region(latlons, iid, era5):
 def main():
     OUT_REGION.parent.mkdir(parents=True, exist_ok=True)
     latlons, iid, era5 = _load()
+    coastline_segments = _required_coastline_segments()
     make_global(latlons, iid, era5)
-    make_region(latlons, iid, era5)
+    make_region(latlons, iid, era5, coastline_segments)
 
 
 if __name__ == "__main__":

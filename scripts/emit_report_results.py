@@ -54,10 +54,10 @@ TOY_BASELINES = [
     ("mode_map", "ModeMap", r"Per-cell MAP (mode)"),
     ("mixture_mean", "MixtureMean", r"Mixture mean"),
     ("smoothed_map", "SmoothedMap", r"Smoothed MAP"),
-    ("a_star", "AStar", r"Smoothest faithful ($a^\star$)"),
+    ("a_star", "AStar", r"Smoothest consistent ($a^\star$)"),
 ]
-# Documented, ultra-review-verified AE lambda* fallback (log.md 2026-06-11) when
-# the local AE run dir is absent; physical value, not a guess.
+# Documented, ultra-review-verified AE lambda* fallback when the local AE run
+# dir is absent; physical value, not a guess.
 AE_LAMBDA_STAR_FALLBACK = 93.74
 
 # Chapter-4 Section 4.2 operating-point off-mode smear macros (B5, 30 Jun). The
@@ -590,8 +590,8 @@ def _m4_operating_beta(run_dir, rel_tol=M4_MATCH_REL_TOL):
     near-one-hot unary gaps: the sweep is *effectively pinned* (likelihood and
     field barely move with beta) and its closest R-tilde stays well above the
     smoothed-MAP / M1 target. A bare nearest-beta would otherwise report a grid
-    endpoint as if it were a matched comparison (log.md 2026-06-11: "the
-    matched-R-tilde M4 comparison is unavailable").
+    endpoint as if it were a matched comparison, when the matched-R-tilde M4
+    comparison is in fact unavailable.
     """
 
     sweep_path = Path(run_dir) / "method4_sweep.npz"
@@ -1276,8 +1276,8 @@ def build_steering_lookup_macros(run_dir):
 # via the SAME `scale_free_roughness` call the scores.csv rows were built from.
 # The mandatory cross-check re-runs the mode_map anchor through the identical
 # call and asserts it reproduces the mode_map R~ already in scores.csv (i.e.
-# `\fcPerCellRtilde`) -- the convention-match guard the steering plan requires
-# before the ERA5 number can be trusted alongside the scores-derived anchors.
+# `\fcPerCellRtilde`) -- the convention-match guard required before the ERA5
+# number can be trusted alongside the scores-derived anchors.
 STEERING_ERA5_CROSSCHECK_TOL = 1e-6
 
 

@@ -2,7 +2,7 @@
 
 The two-regime training configuration for the mixture-emitting models ships as
 a figure (outputs/figures/app_a_training_configs.png) so the automated word
-count excludes it; the counting caveat is flagged on the PROTOCOL §6 checklist.
+count excludes it.
 Every constant below is a config constant, verified against the pinned config
 and notes (NOT results -- no macros involved):
 

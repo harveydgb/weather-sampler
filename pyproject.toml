@@ -1,5 +1,5 @@
 [project]
-name = "weather-sampler-research"
+name = "weather-sampler"
 version = "0.1.0"
 description = "Research code and diagnostics for WeatherGenerator sampler experiments."
 readme = "README.md"

@@ -68,7 +68,7 @@ def _discover_converged_prefixes(data_dir):
 # Min-max range columns appended per metric for the across-init aggregate rows.
 SPREAD_SUFFIXES = ("_lo", "_hi")
 
-# AE step-0 reconstruction anchor (gmm_era5_32ep_v3 me31; log.md): median max-pi.
+# AE step-0 reconstruction anchor (gmm_era5_32ep_v3 me31): median max-pi.
 # Canonical fallback value only -- the figure reads it live from the AE artifact
 # (`ae_anchor_max_pi`) so the star can never drift from the emitted GMM. The
 # artifact computes 0.96549, which is exactly the canonical 0.965 at 3 dp.

@@ -591,7 +591,7 @@ TOY_BASELINE_LABELS = [
     ("mode_map", "Per-cell MAP"),
     ("mixture_mean", "Mixture mean"),
     ("smoothed_map", "Smoothed MAP"),
-    ("a_star", r"Smoothest faithful ($a^\star$)"),
+    ("a_star", r"Smoothest consistent ($a^\star$)"),
 ]
 
 

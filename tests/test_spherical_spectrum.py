@@ -5,7 +5,7 @@ and its helpers. They run on the REAL O96 latlons (the exactness precondition is
 the actual Gauss-Legendre geometry, audit S5), so they require the persisted
 phase_4 marginal npz; they skip cleanly if it is absent.
 
-Coverage (spectrum_era5_plan S6/S9 T9):
+Coverage:
   (a) round-trip / point spectrum -- a single Y_lm concentrates power at that l;
   (b) Parseval -- sum_l (2l+1) C_l == 4*pi * Var_w(f) (area-weighted variance);
   (c) bracket ordering -- iid white noise has more high-l power than a smooth

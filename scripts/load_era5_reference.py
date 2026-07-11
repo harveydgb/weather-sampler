@@ -1,4 +1,4 @@
-"""ERA5 2t reference on the native O96 grid (spectrum_era5_plan.md T3).
+"""ERA5 2t reference on the native O96 grid.
 
 A small, dependency-isolated loader for the ERA5 *direction-of-realism* reference
 drawn on the spectrum and the variogram. This is kept as a SCRIPT (not in the
@@ -9,7 +9,7 @@ swallows every failure (cut criterion C4 -> spectrum ships sample-only).
 RUNG-3, never a target, never validation: ERA5 only orients the *direction* of
 Method 1's high-l correction among siblings that share the decoder mean. Low-l
 offsets vs ERA5 are common-mode decoder error (debug-scale model + token-aligned
-artefact, audit S4). See the plan S0/S2/S8.
+artefact, audit S4).
 
 The ERA5 stream is the same O96 zarr the decoder trained on
 (``aifs-ea-an-oper-0001-mars-o96-1979-2023-6h-v8.zarr``, ``type: anemoi``,

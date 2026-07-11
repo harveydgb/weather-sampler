@@ -7,7 +7,7 @@ someone trying to reproduce the results in the report from scratch.
 
 The boundary is simple:
 
-- **This repository (`weather-sampler-research`)** contains the *sampler* — the methods that
+- **This repository (`weather-sampler`)** contains the *sampler* — the methods that
   assemble the emitted per-location mixtures into a single coherent field, plus all
   evaluation and figures. It takes the mixture `.pt`/`.npz` files as fixed input.
 - **The WeatherGenerator model** produces those mixtures. It is a *separate* codebase on a

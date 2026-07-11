@@ -2,10 +2,10 @@
 
 The headline result: the head's
 mixture weights soften monotonically with forecast lead time. This module is the
-single tested home for the *pinned* softening metrics those log entries define,
-so the report, the notebook, and the test suite all quote one implementation.
+single tested home for the *pinned* softening metrics, so the report, the
+notebook, and the test suite all quote one implementation.
 
-Definitions are pinned verbatim from log.md (quote these, not paraphrases),
+Definitions are pinned verbatim (quote these, not paraphrases),
 on the 2t marginal, per lead:
   * median max-pi      -- median over cells of the largest mixture weight;
   * one-hot fraction   -- fraction of cells with max-pi > 0.9;
@@ -15,9 +15,9 @@ on the 2t marginal, per lead:
   * K_eff              -- exp of the weight entropy (`phase4_eval.effective_k`);
     fraction > 1.5 reported.
 
-`softening_metrics` returns exactly the columns of the canonical log tables, so a
-per-lead CSV built from it can be checked cell-for-cell against the log (the
-verification gate the log itself used).
+`softening_metrics` returns exactly the canonical columns, so a per-lead CSV
+built from it can be checked cell-for-cell against the pinned values (the
+verification gate this module itself provides).
 """
 
 import numpy as np

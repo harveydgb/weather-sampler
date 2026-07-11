@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """ARCHIVED (11 Jun 2026) — superseded by scripts/audit_real_gmm.py; do not extend.
 
-Targets the wiped e3fz467m checkpoint (`gmm_params_e3fz467m.pt`), whose surviving
-facts live in research_notes/phase_4_data_audit.md; the canonical artifact is now
-the converted gmm_era5_32ep_v3 .npz, audited (numbers + figures) by
-scripts/audit_real_gmm.py with the torch-free research venv. Kept for the trail
-only — not deleted per the archival policy.
+Targets the wiped e3fz467m checkpoint (`gmm_params_e3fz467m.pt`); the canonical
+artifact is now the converted gmm_era5_32ep_v3 .npz, audited (numbers + figures)
+by scripts/audit_real_gmm.py with the torch-free research venv. Kept for the
+trail only — not deleted per the archival policy.
 
 Run the existing real-checkpoint salt-and-pepper diagnostics."""
 

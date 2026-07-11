@@ -1,4 +1,4 @@
-# Pinned environment the weather-sampler-research code + report were assessed
+# Pinned environment the weather-sampler code + report were assessed
 # against. Clean-clone reproduction path:
 #   python -m venv .venv && .venv/bin/pip install -r requirements.txt
 #   .venv/bin/python -m pytest -q

@@ -136,7 +136,7 @@ DISPLAY_NAME = {
     "smoothed_map_n10": "Smoothed MAP",
     "smoothed_map_n20": "Smoothed MAP (n=20)",
     "mixture_mean": "Mixture mean",
-    "a_star": "Smoothest faithful ($a^\\star$)",
+    "a_star": "Smoothest consistent ($a^\\star$)",
     "m1_star": "Joint MAP",
     "m1_star_half": "Joint MAP ($\\tfrac12\\lambda^\\star$)",
     "m1_star_double": "Joint MAP ($2\\lambda^\\star$)",
@@ -296,7 +296,7 @@ def _latitude_marker_sizes(lats_deg, base_size=14.0):
 def _natural_earth_coastline_segments():
     """Natural Earth 110m coastline segments in wrapped lon/lat degrees."""
     coastline = (
-        Path(__file__).resolve().parents[3]
+        Path(__file__).resolve().parents[2]
         / "outputs" / "data" / "natural_earth" / "ne_110m_coastline.shp"
     )
     if not coastline.exists():

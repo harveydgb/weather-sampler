@@ -21,7 +21,7 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sampler_research" / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from sampler_research.io import validate_forecast_dict  # noqa: E402
 
 

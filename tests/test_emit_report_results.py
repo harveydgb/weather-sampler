@@ -551,7 +551,7 @@ def test_build_toy_baseline_table_renders_rows_and_placeholders():
     assert r"\begin{tabular}{lcc}" in tbl and r"\bottomrule" in tbl
     assert r"Reference field & NLL/$N$ & $\widetilde{R}$" in tbl
     assert "1.977" in tbl and "2.077" in tbl          # iid row
-    assert r"Smoothest faithful ($a^\star$) & 1.591 & 0.495" in tbl
+    assert r"Smoothest consistent ($a^\star$) & 1.591 & 0.495" in tbl
     # a missing anchor -> em-dash (placeholder) cells, table still complete
     tbl2 = m.build_toy_baseline_table([r for r in TOY if r["baseline"] != "iid"])
     assert f"Independent draw (iid) & {m.PLACEHOLDER} & {m.PLACEHOLDER}" in tbl2
