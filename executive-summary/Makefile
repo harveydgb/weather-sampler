@@ -11,6 +11,11 @@ TEXCOUNT := texcount
 
 LATEXMK_FLAGS := -pdf -interaction=nonstopmode -halt-on-error -file-line-error -f -outdir=$(BUILD_DIR)
 
+# refs.bib lives in the report tree. BIBINPUTS (trailing colon keeps the default
+# search path) lets both latexmk's .bib existence check, run from this directory,
+# and the bibtex it launches inside build/ find the same file.
+export BIBINPUTS := $(REPO_ROOT)/report/construction:
+
 .PHONY: all rebuild watch check-assets prepare-build clean texcount
 
 all: check-assets prepare-build
