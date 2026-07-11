@@ -11,7 +11,6 @@ import sys
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 from conftest import REPO_ROOT
 

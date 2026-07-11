@@ -17,7 +17,7 @@ Coverage (spectrum_era5_plan S6/S9 T9):
 import numpy as np
 import pytest
 
-from conftest import REPO_ROOT
+from conftest import REPO_ROOT, needs_ducc0
 from sampler_research.diagnostics import (
     O96_LMAX_NOMINAL,
     _alm_native,
@@ -107,6 +107,7 @@ def test_iid_has_more_high_l_power_than_smooth_field():
     assert cl_smooth[hi].sum() / cl_smooth[1:].sum() < 0.05
 
 
+@needs_ducc0
 def test_engine_agreement_ducc0_vs_native():
     latlons = _load_latlons()
     rng = np.random.default_rng(2)
@@ -123,6 +124,7 @@ def test_engine_agreement_ducc0_vs_native():
     assert np.median(rel) < 1e-3, f"median rel disagreement {np.median(rel):.2e}"
 
 
+@needs_ducc0
 def test_public_api_default_engine_is_ducc0():
     latlons = _load_latlons()
     rng = np.random.default_rng(4)
@@ -138,6 +140,7 @@ def test_public_api_default_engine_is_ducc0():
     assert np.allclose(spec_default["f"], spec_ducc0["f"], rtol=0.0, atol=0.0)
 
 
+@needs_ducc0
 def test_public_api_shapes_and_band_power_normalisation():
     latlons = _load_latlons()
     rng = np.random.default_rng(3)

@@ -5,7 +5,6 @@ description = "Research code and diagnostics for WeatherGenerator sampler experi
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "ducc0>=0.41",
     "numpy>=1.24",
     "scipy>=1.11",
 ]
@@ -26,19 +25,24 @@ notebooks = [
 real = [
     "torch",
 ]
+spectral = [
+    # Spherical-harmonic transform for the O96 angular power-spectrum diagnostic.
+    # Optional so the core install never needs a C++ toolchain where no wheel exists.
+    "ducc0>=0.41",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-dir]
-"" = "sampler_research/src"
+"" = "src"
 
 [tool.setuptools.packages.find]
-where = ["sampler_research/src"]
+where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["sampler_research/tests"]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100

@@ -19,9 +19,6 @@ Writes to outputs/figures/:
                                  North Atlantic / Europe region
   phase_4_region_lambda_sweep_maps.png
                                  Lambda-sweep panels over the Figure-1.1 region
-  phase_4_region_lambda_sweep_maps_localvar_test.png
-                                 EXPERIMENTAL TEST ONLY duplicate using local
-                                 variance R~ annotations for review
   phase_4_bimodal_enrichment.png W1 MUST: dNLL>0.125 enrichment in the audit
                                  S4 bimodal masks + Mollweide dNLL map
   phase_4_robustness.png         unary-gap histogram (why the Mode-selection MRF beta
@@ -33,8 +30,8 @@ Writes to outputs/figures/:
 Figures are generated here (not in notebook 04) so the MUST figure task does
 not depend on notebook execution; the notebook displays these files.
 `--only name [name ...]` regenerates a subset (maps / pareto / variogram /
-spectrum / lambda_maps / region_maps / region_lambda_maps /
-region_lambda_maps_localvar_test / enrichment / robustness) without rewriting
+spectrum / lambda_maps / region_maps / region_lambda_maps / enrichment /
+robustness) without rewriting the other committed PNGs.
 the other committed PNGs.
 """
 
@@ -49,13 +46,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from sampler_research.experimental_local_variance import (
-    TEST_ONLY_NOTICE,
-    build_local_variance_neighborhoods,
-    local_scale_free_roughness,
-)
 from sampler_research.faithfulness import bootstrap_cell_statistic
-from sampler_research.graph import scale_free_roughness
 from sampler_research.io import load_real_marginal
 from sampler_research.plotting import (
     _draw_robinson_coastlines,
@@ -97,7 +88,6 @@ DATA_NPZ = REPO_ROOT / "outputs" / "data" / "phase_4_real_2t.npz"
 # (`scripts/make_hook_figure.py`).
 REGION_LON_MIN, REGION_LON_MAX = -60.0, 40.0
 REGION_LAT_MIN, REGION_LAT_MAX = 20.0, 75.0
-LOCAL_VARIANCE_TEST_RADIUS_GRID_POINTS = 10
 
 
 def _load_rows():
@@ -446,131 +436,6 @@ def fig_region_lambda_maps(latlons):
     print(
         "wrote phase_4_region_lambda_sweep_maps.png "
         f"(lambdas: {selected_lambdas}{target_suffix})"
-    )
-
-
-def _load_local_variance_test_graph():
-    with np.load(RUN_DIR / "masks.npz") as f:
-        edges = np.asarray(f["edges"], dtype=np.int64)
-        edge_lengths = (
-            np.asarray(f["edge_arc_km"], dtype=float) if "edge_arc_km" in f.files else None
-        )
-    return edges, edge_lengths
-
-
-def _local_variance_test_fields(latlons, fields):
-    edges, edge_lengths = _load_local_variance_test_graph()
-    neighborhoods = build_local_variance_neighborhoods(
-        latlons,
-        edges,
-        radius_grid_points=LOCAL_VARIANCE_TEST_RADIUS_GRID_POINTS,
-        edge_lengths_km=edge_lengths,
-    )
-    rows = []
-    for title, values in fields.items():
-        local_roughness = local_scale_free_roughness(values, edges, neighborhoods)
-        global_roughness, global_collapsed = scale_free_roughness(values, edges)
-        if local_roughness.variance_collapsed:
-            local_r = "collapsed"
-        else:
-            local_r = f"{local_roughness.r_tilde:.3g}"
-        global_r = "collapsed" if global_collapsed else f"{global_roughness:.3g}"
-        rows.append((title, values, local_r, global_r))
-    return rows, neighborhoods.radius_km
-
-
-def _plot_region_local_global_pairs(latlons, rows, *, suptitle, radius_km):
-    box, lon_b, lat_b = _region_coords(latlons)
-    values_for_scale = np.concatenate([
-        np.asarray(values, dtype=float).reshape(-1)[box] for _, values, _, _ in rows
-    ])
-    p2, p98 = np.percentile(values_for_scale, [2, 98])
-    vspan = float(max(abs(p2), abs(p98)))
-    if not np.isfinite(vspan) or vspan == 0.0:
-        vspan = 1.0
-    vmin, vmax = -vspan, vspan
-    aspect = 1.0 / np.cos(np.deg2rad(0.5 * (REGION_LAT_MIN + REGION_LAT_MAX)))
-    marker_sizes = _latitude_marker_sizes(lat_b, base_size=16.0)
-
-    nrows = len(rows)
-    fig, axes = plt.subplots(nrows, 2, figsize=(15.2, 3.8 * nrows + 2.0), squeeze=False)
-    sc = None
-    coastlines = list(_natural_earth_coastline_segments())
-    for row_idx, (title, values, local_r, global_r) in enumerate(rows):
-        values_b = np.asarray(values, dtype=float).reshape(-1)[box]
-        for col_idx, (metric_label, metric_value) in enumerate((
-            (f"local R~{LOCAL_VARIANCE_TEST_RADIUS_GRID_POINTS}", local_r),
-            ("global R~", global_r),
-        )):
-            ax = axes[row_idx, col_idx]
-            sc = ax.scatter(
-                lon_b,
-                lat_b,
-                c=values_b,
-                s=marker_sizes,
-                cmap="RdBu_r",
-                vmin=vmin,
-                vmax=vmax,
-                rasterized=True,
-                zorder=2,
-            )
-            for seg_lon, seg_lat in coastlines:
-                ax.plot(seg_lon, seg_lat, color="0.08", lw=0.85, alpha=0.85, zorder=3)
-            ax.set_xlim(REGION_LON_MIN, REGION_LON_MAX)
-            ax.set_ylim(REGION_LAT_MIN, REGION_LAT_MAX)
-            ax.set_aspect(aspect)
-            ax.set_anchor("E" if col_idx == 0 else "W")
-            ax.set_title(
-                f"{title}\n{metric_label} = {metric_value}",
-                fontsize=PANEL_TITLE_FONTSIZE,
-                pad=7,
-            )
-            ax.set_xticks([])
-            ax.set_yticks([])
-
-    fig.suptitle(suptitle, y=0.988, fontsize=FIG_TITLE_FONTSIZE)
-    fig.text(0.39, 0.955, "Local Roughness (test)", ha="center", fontsize=13, weight="bold")
-    fig.text(0.61, 0.955, "Global Roughness (production)", ha="center", fontsize=13, weight="bold")
-    fig.subplots_adjust(left=0.06, right=0.86, bottom=0.032, top=0.93, wspace=0.015, hspace=0.38)
-    cbar_ax = fig.add_axes([0.885, 0.08, 0.016, 0.82])
-    cbar = fig.colorbar(sc, cax=cbar_ax, orientation="vertical")
-    cbar.set_label("2 m temperature (standardised)", fontsize=AXIS_LABEL_FONTSIZE)
-    cbar.ax.tick_params(labelsize=TICK_LABEL_FONTSIZE)
-    fig.text(
-        0.02,
-        0.008,
-        f"{TEST_ONLY_NOTICE} Radius = {LOCAL_VARIANCE_TEST_RADIUS_GRID_POINTS} "
-        f"grid points (~{radius_km:.0f} km).",
-        fontsize=8,
-        color="crimson",
-    )
-    return fig
-
-
-def fig_region_lambda_maps_localvar_test(latlons):
-    fields, lambdas, selected = _lambda_map_fields()
-    rows, radius_km = _local_variance_test_fields(latlons, fields)
-    regime_title = _display_regime_label(compact=True)
-    fig = _plot_region_local_global_pairs(
-        latlons,
-        rows,
-        suptitle=(
-            f"{regime_title}: EXPERIMENTAL TEST ONLY Local vs Global Roughness\n"
-            "Left column: local-variance denominator; right column: production global denominator"
-        ),
-        radius_km=radius_km,
-    )
-    fig.savefig(
-        FIG_DIR / "phase_4_region_lambda_sweep_maps_localvar_test.png",
-        dpi=300,
-        bbox_inches="tight",
-    )
-    plt.close(fig)
-    selected_lambdas = ", ".join(_format_lambda(lambdas[idx]) for idx in selected)
-    target_suffix = " + smoothed_map_n10 target" if len(rows) > len(selected) else ""
-    print(
-        "wrote phase_4_region_lambda_sweep_maps_localvar_test.png "
-        f"(lambdas: {selected_lambdas}{target_suffix}; TEST ONLY)"
     )
 
 
@@ -975,8 +840,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--only", nargs="*", default=None,
                         help=("subset of {maps, pareto, variogram, spectrum, lambda_maps, "
-                              "region_maps, region_lambda_maps, "
-                              "region_lambda_maps_localvar_test, enrichment, robustness}"))
+                              "region_maps, region_lambda_maps, enrichment, robustness}"))
     parser.add_argument("--data", type=Path, default=DATA_NPZ,
                         help="real-marginal npz (mirrors run_real_eval.py --data)")
     parser.add_argument("--out-dir", type=Path, default=RUN_DIR,
@@ -1000,9 +864,6 @@ def main():
         "lambda_maps": lambda: fig_lambda_maps(data["latlons"]),
         "region_maps": lambda: fig_region_maps(data["latlons"], star),
         "region_lambda_maps": lambda: fig_region_lambda_maps(data["latlons"]),
-        "region_lambda_maps_localvar_test": lambda: fig_region_lambda_maps_localvar_test(
-            data["latlons"]
-        ),
         "enrichment": lambda: fig_bimodal_enrichment(data["latlons"], star),
         "robustness": lambda: fig_robustness(star),
     }

@@ -16,12 +16,10 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from sampler_research.baselines import (
     _argmin_by_value,
     _value_space_icm,
-    gmm_nll_per_cell,
     mode_field,
     score_field,
     smoothest_mode_assignment,

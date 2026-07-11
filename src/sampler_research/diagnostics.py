@@ -263,7 +263,6 @@ def _alm_native(G, layout, lmax):
     in (l, m).
     """
 
-    n_rings = layout["n_rings"]
     x = layout["x"]
     coeff_ring = layout["w"] / layout["nphi"]  # w_j / nphi_j per ring
     alm = np.zeros((lmax + 1, lmax + 1), dtype=complex)

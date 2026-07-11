@@ -23,9 +23,9 @@ The code is organised by what each part does:
 
 ## Layout
 
-- `sampler_research/src/sampler_research/` — the library: toy construction, baselines, the two
+- `src/sampler_research/` — the library: toy construction, baselines, the two
   samplers, graph/GMM helpers, the evaluation protocol, diagnostics, and plotting.
-- `sampler_research/tests/` — the regression suite.
+- `tests/` — the regression suite.
 - `scripts/` — runnable experiment and figure scripts.
 - `notebooks/` — result notebooks (shipped with their outputs).
 - `outputs/figures/` — key result figures.
@@ -41,11 +41,18 @@ The code is organised by what each part does:
     python -m pip install -U pip
     python -m pip install -r requirements.txt
 
-Python >= 3.10. Runtime dependencies are ducc0, numpy, scipy, matplotlib and pyshp.
-`ducc0` is the open-source spherical-harmonic transform backend for the native O96
-angular power-spectrum diagnostic. `requirements.txt` pins the assessed versions and
-installs the package itself. On platforms without a pre-built ducc0 wheel, installation
-may build ducc0 from source and require a C++17 compiler plus Python development headers.
+Python >= 3.10. Core runtime dependencies are numpy, scipy, matplotlib and pyshp — all
+pre-built wheels, no system libraries required. `requirements.txt` pins the assessed
+versions and installs the package itself, so a clean install works on every platform.
+
+The spherical-harmonic spectrum diagnostic additionally needs `ducc0`, kept as an
+optional extra so the core install never needs a compiler. Enable it (and the spectrum
+tests) with:
+
+    python -m pip install '.[spectral]'
+
+On platforms without a pre-built ducc0 wheel this builds from source (needs a C++17
+compiler and Python headers); nothing else in the repo depends on it.
 
 ## Run the tests
 

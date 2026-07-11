@@ -10,6 +10,8 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements.txt
+      - run: python -m pip install -e '.[spectral]'   # optional ducc0 for the spectrum diagnostic (x86_64 wheel on CI)
+        continue-on-error: true
       - run: python -m pip install ruff
       - run: ruff check .
         continue-on-error: true

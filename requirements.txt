@@ -1,16 +1,18 @@
 # Pinned environment the weather-sampler-research code + report were assessed
-# against (audit response F3). Clean-clone reproduction path:
+# against. Clean-clone reproduction path:
 #   python -m venv .venv && .venv/bin/pip install -r requirements.txt
 #   .venv/bin/python -m pytest -q
 #
-# ducc0 provides the open-source spherical harmonic transform used by the O96
-# angular power-spectrum diagnostic. numpy/scipy are the other runtime
-# dependencies; matplotlib drives the Phase-4 figure scripts; pyshp reads the
-# bundled Natural Earth coastlines; pytest runs the suite. All stochastic
-# results seed np.random.default_rng (PCG64), whose streams are stable across these
-# versions, so seeded numbers reproduce exactly. (networkx is intentionally
+# numpy/scipy are the runtime dependencies; matplotlib drives the Phase-4 figure
+# scripts; pyshp reads the bundled Natural Earth coastlines; pytest runs the suite.
+# All stochastic results seed np.random.default_rng (PCG64), whose streams are stable
+# across these versions, so seeded numbers reproduce exactly. (networkx is intentionally
 # absent -- it is not imported anywhere in the tree.)
-ducc0==0.41.0
+#
+# ducc0 (spherical-harmonic transform for the O96 angular power-spectrum diagnostic) is
+# an OPTIONAL extra, deliberately not pinned here so a clean install never needs a C++
+# toolchain on platforms without a ducc0 wheel. Install it -- and the spectrum tests it
+# unlocks -- with:  pip install '.[spectral]'
 numpy==2.4.6
 scipy==1.17.1
 matplotlib==3.10.9

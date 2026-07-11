@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from sampler_research.baselines import gmm_nll_over_n, mode_field
-from sampler_research.gmm import mixture_pdf, normal_pdf
+from sampler_research.gmm import normal_pdf
 from sampler_research.graph import (
     graph_laplacian,
     grid_edges_8,
