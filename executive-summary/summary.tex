@@ -23,15 +23,15 @@
 \newcommand{\summaryauthor}{Harvey Bermingham}
 \newcommand{\summaryprogramme}{MPhil Data Intensive Science}
 \newcommand{\summaryinstitution}{University of Cambridge}
-\newcommand{\summarywordcount}{987}
+\newcommand{\summarywordcount}{997}
 \newcommand{\summarylimit}{1,000 words}
 
 \newif\ifshowwordcount
 % Front-cover word count is mandatory on BOTH documents (REQUIREMENTS.md; omission =
-% automatic mark loss), so it is shown here. The value is the official texcount:
-% `texcount -merge summary.tex` from executive-summary/ reports "Words in text: 975"
-% (headers add 10; the thesis-cover convention decides whether those 10 are included
-% — set both covers by the same rule at the final build). Re-run texcount if the
+% automatic mark loss), so it is shown here. `texcount -merge summary.tex` from
+% executive-summary/ reports "Words in text: 987" plus "Words in headers: 10"; the
+% 997 shown INCLUDES the section headings (987 + 10), the conservative reading, and
+% is safely under the 1,000 limit. Re-run texcount and update this value if the
 % summary prose changes.
 \showwordcounttrue
 
