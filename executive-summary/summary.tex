@@ -23,14 +23,14 @@
 \newcommand{\summaryauthor}{Harvey Bermingham}
 \newcommand{\summaryprogramme}{MPhil Data Intensive Science}
 \newcommand{\summaryinstitution}{University of Cambridge}
-\newcommand{\summarywordcount}{997}
+\newcommand{\summarywordcount}{990}
 \newcommand{\summarylimit}{1,000 words}
 
 \newif\ifshowwordcount
 % Front-cover word count is mandatory on BOTH documents (REQUIREMENTS.md; omission =
 % automatic mark loss), so it is shown here. `texcount -merge summary.tex` from
-% executive-summary/ reports "Words in text: 987" plus "Words in headers: 10"; the
-% 997 shown INCLUDES the section headings (987 + 10), the conservative reading, and
+% executive-summary/ reports "Words in text: 980" plus "Words in headers: 10"; the
+% 990 shown INCLUDES the section headings (980 + 10), the conservative reading, and
 % is safely under the 1,000 limit. Re-run texcount and update this value if the
 % summary prose changes.
 \showwordcounttrue
@@ -72,18 +72,18 @@
 \section*{Motivation \& Scientific Justification}
 
 Weather forecasts inform decisions across agriculture, energy, transport and emergency
-planning, and recent years have repeatedly broken temperature records. Preparing for
-droughts and heatwaves therefore depends not only on the most likely outcome but on how
-confident that prediction is. Operational forecasts traditionally express this uncertainty by running
-a physics-based model many times from perturbed starting conditions.
-Machine-learning models offer a newer route, learning from decades of past atmospheric
-data rather than simulating the physics. Some, such as GenCast \cite{price2024gencast},
+planning, and with recent years repeatedly breaking temperature records, this means preparing for
+droughts and heatwaves depends not only on the most likely outcome but on how
+confident that prediction is. Operational ensembles traditionally estimate this uncertainty 
+through repeated physics-based simulations that vary initial conditions and model behaviour.
+Machine-learning models offer a newer route, learning from decades of past atmospheric data 
+without directly simulating the physics. Some, such as GenCast \cite{price2024gencast},
 generate whole ensembles of fields. The WeatherGenerator \cite{weathergenerator}, a foundation weather model
-developed at ECMWF of the same kind as AtmoRep \cite{lessig2023atmorep} and Aurora
-\cite{bodnar2024aurora}, has a branch that instead outputs a Gaussian mixture at every
-grid location, a blend of four weighted bell-shaped components. This means the forecast
-itself carries the model's uncertainty and can hold several distinct plausible outcomes
-at once. However, due to computational constraints each location's mixture is produced on
+developed at ECMWF is related to AtmoRep \cite{lessig2023atmorep} and Aurora
+\cite{bodnar2024aurora}. Its branch instead outputs a Gaussian mixture at every
+grid location, a blend of four weighted bell-shaped components. Each mixture can 
+therefore represent uncertainty and hold several distinct plausible values at once.
+However, due to computational constraints each location's mixture is produced on
 its own, and the model holds no covariance between locations. Sampling each location
 independently therefore gives a noisy field unlike any real weather pattern
 (Figure~\ref{fig:sum-hook}).
