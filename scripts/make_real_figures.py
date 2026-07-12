@@ -1,27 +1,31 @@
 """Phase 4 report figures from the persisted runner artifacts.
 
-Run after `scripts/run_real_eval.py` (all stages + --lambda-star):
+Run after `scripts/run_real_eval.py` (all stages + --lambda-star). The
+reconstruction-regime renders go under a `recon/` subdir so their short base
+names never collide with the per-lead forecast renders, which the forecast
+driver writes to `outputs/figures/forecast_<ep>_step<k>/` with the same base
+names (regime is disambiguated by directory, not filename):
 
-    .venv/bin/python scripts/make_real_figures.py
+    .venv/bin/python scripts/make_real_figures.py --fig-dir outputs/figures/recon
 
-Writes to outputs/figures/:
-  phase_4_maps.png               4/5-panel global Mollweide
-  phase_4_pareto_smear.png       (NLL/N, R~) plane + smear-fraction panel
-  phase_4_variogram.png          sampled spherical variograms (descriptive;
+Writes to the chosen --fig-dir (base names below):
+  maps.png               4/5-panel global Mollweide
+  pareto_smear.png       (NLL/N, R~) plane + smear-fraction panel
+  variogram.png          sampled spherical variograms (descriptive;
                                  + ERA5 reference line if available)
-  phase_4_spectrum.png           native O96 angular power spectrum C_l vs l
+  spectrum.png           native O96 angular power spectrum C_l vs l
                                  (rung-3 bracket; main-text coherence figure;
                                  + ERA5 direction reference if available)
-  phase_4_lambda_sweep_maps.png  Joint MAP maps for lambda=0 plus the first
+  lambda_sweep_maps.png  Joint MAP maps for lambda=0 plus the first
                                  six positive lambda-sweep points, alongside
                                  the matched Smoothed MAP target when present
-  phase_4_region_maps.png        Figure-5.2 method panels over the Figure-1.1
+  region_maps.png        Figure-5.2 method panels over the Figure-1.1
                                  North Atlantic / Europe region
-  phase_4_region_lambda_sweep_maps.png
+  region_lambda_sweep_maps.png
                                  Lambda-sweep panels over the Figure-1.1 region
-  phase_4_bimodal_enrichment.png W1 MUST: dNLL>0.125 enrichment in the audit
+  bimodal_enrichment.png W1 MUST: dNLL>0.125 enrichment in the audit
                                  S4 bimodal masks + Mollweide dNLL map
-  phase_4_robustness.png         unary-gap histogram (why the Mode-selection MRF beta
+  robustness.png         unary-gap histogram (why the Mode-selection MRF beta
                                  sweep is pinned) + unit-vs-weighted-graph
                                  matched-coherence points (needs
                                  robustness_probes.json from
@@ -334,9 +338,9 @@ def fig_maps(latlons, star):
         top=0.93,
         hspace=0.02,
     )
-    fig.savefig(FIG_DIR / "phase_4_maps.png", dpi=150, bbox_inches="tight")
+    fig.savefig(FIG_DIR / "maps.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print("wrote phase_4_maps.png")
+    print("wrote maps.png")
 
 
 def fig_region_maps(latlons, star):
@@ -350,9 +354,9 @@ def fig_region_maps(latlons, star):
         top=0.91,
         hspace=0.18,
     )
-    fig.savefig(FIG_DIR / "phase_4_region_maps.png", dpi=300, bbox_inches="tight")
+    fig.savefig(FIG_DIR / "region_maps.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
-    print("wrote phase_4_region_maps.png")
+    print("wrote region_maps.png")
 
 
 def _format_lambda(lam):
@@ -410,11 +414,11 @@ def fig_lambda_maps(latlons):
         top=0.94,
         hspace=0.02,
     )
-    fig.savefig(FIG_DIR / "phase_4_lambda_sweep_maps.png", dpi=300, bbox_inches="tight")
+    fig.savefig(FIG_DIR / "lambda_sweep_maps.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
     selected_lambdas = ", ".join(_format_lambda(lambdas[idx]) for idx in selected)
     target_suffix = " + smoothed_map_n10 target" if len(fields) > len(selected) else ""
-    print(f"wrote phase_4_lambda_sweep_maps.png (lambdas: {selected_lambdas}{target_suffix})")
+    print(f"wrote lambda_sweep_maps.png (lambdas: {selected_lambdas}{target_suffix})")
 
 
 def fig_region_lambda_maps(latlons):
@@ -428,13 +432,13 @@ def fig_region_lambda_maps(latlons):
         top=0.93,
         hspace=0.16,
     )
-    fig.savefig(FIG_DIR / "phase_4_region_lambda_sweep_maps.png", dpi=300,
+    fig.savefig(FIG_DIR / "region_lambda_sweep_maps.png", dpi=300,
                 bbox_inches="tight")
     plt.close(fig)
     selected_lambdas = ", ".join(_format_lambda(lambdas[idx]) for idx in selected)
     target_suffix = " + smoothed_map_n10 target" if len(fields) > len(selected) else ""
     print(
-        "wrote phase_4_region_lambda_sweep_maps.png "
+        "wrote region_lambda_sweep_maps.png "
         f"(lambdas: {selected_lambdas}{target_suffix})"
     )
 
@@ -606,9 +610,9 @@ def fig_pareto_smear(star):
         _plabel(ax2, float(star_row["r_tilde"]), m1_ci["point"], star_lbl,
                 xytext=(0, -10), ha="center", va="top", bold=True)
 
-    fig.savefig(FIG_DIR / "phase_4_pareto_smear.png", dpi=150, bbox_inches="tight")
+    fig.savefig(FIG_DIR / "pareto_smear.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print("wrote phase_4_pareto_smear.png")
+    print("wrote pareto_smear.png")
 
 
 def fig_variogram():
@@ -626,9 +630,9 @@ def fig_variogram():
         centres, variograms, xlabel="angular distance (deg)", title=title,
     )
     ax.set_xlim(0, 60)
-    fig.savefig(FIG_DIR / "phase_4_variogram.png", dpi=150, bbox_inches="tight")
+    fig.savefig(FIG_DIR / "variogram.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print("wrote phase_4_variogram.png" + (" (with ERA5 reference)" if has_era5 else ""))
+    print("wrote variogram.png" + (" (with ERA5 reference)" if has_era5 else ""))
 
 
 # The main-text +48h spectrum shows exactly the methods that appear as panels in
@@ -656,7 +660,7 @@ def fig_spectrum():
     """
     spec_path = RUN_DIR / "spectra.npz"
     if not spec_path.exists():
-        print(f"skip phase_4_spectrum.png ({spec_path.name} absent; "
+        print(f"skip spectrum.png ({spec_path.name} absent; "
               "rerun the scores stage to produce it)")
         return
     with np.load(spec_path) as f:
@@ -682,9 +686,9 @@ def fig_spectrum():
     ax.set_xlabel("Angular degree ($\\ell$)")
     ax.set_ylabel("$C_\\ell$ (normalised power)")
     ax.legend(fontsize=LEGEND_FONTSIZE)
-    fig.savefig(FIG_DIR / "phase_4_spectrum.png", dpi=150, bbox_inches="tight")
+    fig.savefig(FIG_DIR / "spectrum.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print("wrote phase_4_spectrum.png" + (" (with ERA5 reference)" if has_era5 else ""))
+    print("wrote spectrum.png" + (" (with ERA5 reference)" if has_era5 else ""))
 
 
 def fig_bimodal_enrichment(latlons, star):
@@ -756,15 +760,15 @@ def fig_bimodal_enrichment(latlons, star):
     regime_title = _display_regime_label()
     fig.suptitle(regime_title, fontsize=FIG_TITLE_FONTSIZE, y=0.98)
     fig.subplots_adjust(left=0.055, right=0.965, bottom=0.10, top=0.86)
-    fig.savefig(FIG_DIR / "phase_4_bimodal_enrichment.png", dpi=150, bbox_inches="tight")
+    fig.savefig(FIG_DIR / "bimodal_enrichment.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print("wrote phase_4_bimodal_enrichment.png")
+    print("wrote bimodal_enrichment.png")
 
 
 def fig_robustness(star):
     probes_path = RUN_DIR / "robustness_probes.json"
     if not probes_path.exists():
-        print(f"skip phase_4_robustness.png ({probes_path.name} absent; "
+        print(f"skip robustness.png ({probes_path.name} absent; "
               "robustness probes not run for this regime)")
         return
     with np.load(RUN_DIR / "modes.npz") as f:
@@ -831,9 +835,9 @@ def fig_robustness(star):
 
     fig.suptitle(_regime_label(), fontsize=10)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
-    fig.savefig(FIG_DIR / "phase_4_robustness.png", dpi=150, bbox_inches="tight")
+    fig.savefig(FIG_DIR / "robustness.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print("wrote phase_4_robustness.png")
+    print("wrote robustness.png")
 
 
 def main():

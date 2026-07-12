@@ -29,9 +29,11 @@ rsync -a --delete "$SRC/docs/" "$DEST/docs/"
 cp "$SRC/README.md" "$SRC/pyproject.toml" "$SRC/requirements.txt" "$SRC/.gitignore" "$DEST/"
 cp "$SRC/Makefile.submission" "$DEST/Makefile"
 [ -f "$SRC/LICENSE" ] && cp "$SRC/LICENSE" "$DEST/"
-if [ -f "$SRC/.github/workflows/ci.yml" ]; then
-  mkdir -p "$DEST/.github/workflows"; cp "$SRC/.github/workflows/ci.yml" "$DEST/.github/workflows/"
-fi
+# CI: the submission is hosted and assessed on GitLab, so ship .gitlab-ci.yml and
+# never the GitHub workflow (GitHub Actions does not run on GitLab). Actively
+# remove any previously exported .github/ so a stale GitHub workflow cannot linger.
+cp "$SRC/.gitlab-ci.yml" "$DEST/"
+rm -rf "$DEST/.github"
 
 # report: PDFs only
 mkdir -p "$DEST/report"

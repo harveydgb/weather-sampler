@@ -35,8 +35,8 @@ def test_fig_robustness_skips_when_probes_absent(tmp_path, capsys):
     # Must not raise even though modes.npz and the probes json are both missing.
     assert figures.fig_robustness({"lambda_star": 93.74}) is None
     out = capsys.readouterr().out
-    assert "skip phase_4_robustness.png" in out
-    assert not (tmp_path / "phase_4_robustness.png").exists()
+    assert "skip robustness.png" in out
+    assert not (tmp_path / "robustness.png").exists()
 
 
 def test_fig_robustness_passes_guard_when_probes_present(tmp_path):
@@ -57,17 +57,19 @@ import re
 THESIS = REPO_ROOT / "report" / "thesis.tex"
 FIG_DIR = REPO_ROOT / "outputs" / "figures"
 # Forecast-chapter figures must show the +48h converged render (step 8), not the
-# default reconstruction render that shares the bare filename. Pins audit T1.
-_FORECAST_STEP8 = "phase_4_fc48_14ep_step8"
+# reconstruction render (now under recon/) that shares the bare filename. Pins
+# audit T1. This names the FIGURE dir (de-phased); the matching RUN dir keeps its
+# internal phase_4_fc48_ prefix and is spelled out separately in _RUN_STEP8 below.
+_FORECAST_STEP8 = "forecast_14ep_step8"
 
 
 @pytest.mark.skipif(not THESIS.exists(), reason="report/thesis.tex absent")
 @pytest.mark.parametrize(
     "stem",
     [
-        "phase_4_pareto_smear.png",
-        "phase_4_spectrum.png",
-        "phase_4_bimodal_enrichment.png",
+        "pareto_smear.png",
+        "spectrum.png",
+        "bimodal_enrichment.png",
     ],
 )
 def test_forecast_figures_point_at_step8_render(stem):
@@ -78,7 +80,10 @@ def test_forecast_figures_point_at_step8_render(stem):
     set, never a stale path. (The maps stem has its own tests below: the
     main text carries the REGIONAL render, the whole-globe renders live in
     Appendix C.)"""
-    pattern = r"\\includegraphics(?:\[[^\]]*\])?\{([^}]*" + re.escape(stem) + r")\}"
+    # Anchor the stem to a path boundary (start of the {…} or a directory
+    # slash) so a de-phased bare filename like maps.png cannot substring-match a
+    # longer sibling such as region_maps.png / region_lambda_sweep_maps.png.
+    pattern = r"\\includegraphics(?:\[[^\]]*\])?\{((?:[^}]*/)?" + re.escape(stem) + r")\}"
     main_text, _, appendix = THESIS.read_text().partition("\n\\appendix")
     includes = re.findall(pattern, main_text)
     assert includes, f"no \\includegraphics for {stem} in thesis.tex main text"
@@ -87,9 +92,9 @@ def test_forecast_figures_point_at_step8_render(stem):
             f"{stem} should resolve to the +48h step-8 render, got {path!r}")
         assert (FIG_DIR / path).exists(), f"missing forecast render asset: {path}"
     allowed_appendix = {
-        stem,  # root render = reconstruction regime (step 0)
-        f"phase_4_fc48_14ep_step1/{stem}",  # +6h per-lead render
-        f"phase_4_fc48_14ep_step4/{stem}",  # +24h per-lead render
+        f"recon/{stem}",  # reconstruction regime (step 0) now lives under recon/
+        f"forecast_14ep_step1/{stem}",  # +6h per-lead render
+        f"forecast_14ep_step4/{stem}",  # +24h per-lead render
         f"{_FORECAST_STEP8}/{stem}",
     }
     for path in re.findall(pattern, appendix):
@@ -104,7 +109,10 @@ def _thesis_split():
 
 
 def _includes(text, stem):
-    pattern = r"\\includegraphics(?:\[[^\]]*\])?\{([^}]*" + re.escape(stem) + r")\}"
+    # Anchor the stem to a path boundary (start of the {…} or a directory
+    # slash) so a de-phased bare filename like maps.png cannot substring-match a
+    # longer sibling such as region_maps.png / region_lambda_sweep_maps.png.
+    pattern = r"\\includegraphics(?:\[[^\]]*\])?\{((?:[^}]*/)?" + re.escape(stem) + r")\}"
     return re.findall(pattern, text)
 
 
@@ -115,11 +123,11 @@ def test_main_text_maps_figure_is_region_render():
     grid-scale texture at O96), and no whole-globe maps render remains in
     the main text."""
     main_text, _ = _thesis_split()
-    region = _includes(main_text, "phase_4_region_maps.png")
-    assert region == [f"{_FORECAST_STEP8}/phase_4_region_maps.png"], (
+    region = _includes(main_text, "region_maps.png")
+    assert region == [f"{_FORECAST_STEP8}/region_maps.png"], (
         f"main text must include exactly the step-8 region render, got {region!r}")
     assert (FIG_DIR / region[0]).exists(), f"missing region render asset: {region[0]}"
-    stray = _includes(main_text, "phase_4_maps.png")
+    stray = _includes(main_text, "maps.png")
     assert stray == [], (
         f"whole-globe maps renders belong in Appendix C, found in main text: {stray!r}")
 
@@ -131,14 +139,14 @@ def test_appendix_global_maps_renders_from_allowed_set():
     re-rendered paths are allowed, and the step-8 view must be present."""
     _, appendix = _thesis_split()
     allowed = {
-        "phase_4_maps.png",
-        "phase_4_fc48_14ep_step1/phase_4_maps.png",
-        "phase_4_fc48_14ep_step4/phase_4_maps.png",
-        f"{_FORECAST_STEP8}/phase_4_maps.png",
+        "recon/maps.png",
+        "forecast_14ep_step1/maps.png",
+        "forecast_14ep_step4/maps.png",
+        f"{_FORECAST_STEP8}/maps.png",
     }
-    found = _includes(appendix, "phase_4_maps.png")
+    found = _includes(appendix, "maps.png")
     assert set(found) <= allowed, f"appendix maps include outside allowed set: {found!r}"
-    assert f"{_FORECAST_STEP8}/phase_4_maps.png" in found, (
+    assert f"{_FORECAST_STEP8}/maps.png" in found, (
         "Appendix C must carry the whole-globe step-8 render")
     for path in found:
         assert (FIG_DIR / path).exists(), f"missing appendix render asset: {path}"
@@ -149,14 +157,16 @@ def test_appendix_region_lambda_sweep_is_step8_render():
     """The Appendix B lambda-sweep strip is the +48h step-8 regional render,
     provenance-pinned like the other forecast figures."""
     _, appendix = _thesis_split()
-    found = _includes(appendix, "phase_4_region_lambda_sweep_maps.png")
-    assert found == [f"{_FORECAST_STEP8}/phase_4_region_lambda_sweep_maps.png"], (
+    found = _includes(appendix, "region_lambda_sweep_maps.png")
+    assert found == [f"{_FORECAST_STEP8}/region_lambda_sweep_maps.png"], (
         f"App B lambda strip must be the step-8 region render, got {found!r}")
     assert (FIG_DIR / found[0]).exists(), f"missing lambda-strip asset: {found[0]}"
 
 
 # --- Spectrum curve inventory ---------------------------------------------------
-_RUN_STEP8 = REPO_ROOT / "outputs" / "runs" / _FORECAST_STEP8
+# The run dir keeps its internal phase_4_fc48_ prefix (only figure dirs were
+# de-phased), so it is spelled out here rather than derived from _FORECAST_STEP8.
+_RUN_STEP8 = REPO_ROOT / "outputs" / "runs" / "phase_4_fc48_14ep_step8"
 
 
 def test_spectrum_curve_set_drops_duplicates_and_keeps_budget():

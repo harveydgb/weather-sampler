@@ -75,8 +75,8 @@ def test_both_figures_render(tmp_path):
     art = m.load_artifacts()
     out1 = m.fig_nonsmearing(art, tmp_path)
     out2 = m.fig_pareto_plane(art, tmp_path)
-    assert out1.name == "phase_2_stage_bc_nonsmearing_homoscedastic.png"
-    assert out2.name == "phase_2_tv_pareto_plane_homoscedastic.png"
+    assert out1.name == "toy_nonsmearing.png"
+    assert out2.name == "toy_tv_pareto_plane.png"
     for out in (out1, out2):
         assert out.exists() and out.stat().st_size > 0
 
@@ -90,7 +90,7 @@ def test_component_fields_figure_renders(tmp_path):
     m = _load()
     art = m.load_component_fields()
     out = m.fig_component_fields(art, tmp_path)
-    assert out.name == "phase_1_component_fields.png"
+    assert out.name == "toy_component_fields.png"
     assert out.exists() and out.stat().st_size > 0
 
 
@@ -115,7 +115,7 @@ def test_stage_a_baselines_figure_renders(tmp_path):
     m = _load()
     art = m.load_artifacts()
     out = m.fig_stage_a_baselines(art, tmp_path)
-    assert out.name == "phase_2_stage_a_baselines.png"
+    assert out.name == "toy_baselines.png"
     assert out.exists() and out.stat().st_size > 0
 
 
@@ -127,7 +127,7 @@ def test_selected_outcomes_figure_renders(tmp_path):
     m = _load()
     art = m.load_artifacts()
     out = m.fig_selected_outcomes(art, tmp_path)
-    assert out.name == "phase_2_selected_outcomes_homoscedastic.png"
+    assert out.name == "toy_selected_outcomes.png"
     assert out.exists() and out.stat().st_size > 0
 
 

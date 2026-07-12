@@ -243,7 +243,7 @@ def main():
     fig.suptitle(f"2t GMM fields — {meta['from_run_id']} me{meta['mini_epoch']} "
                  f"@ {meta['target_datetime']}", y=1.02)
     fig.tight_layout()
-    fig.savefig(FIGS / "phase_4_audit_map_field.png", dpi=150, bbox_inches="tight")
+    fig.savefig(FIGS / "real_audit_map_field.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
     fig, axes = plt.subplots(3, 1, figsize=(9, 12), subplot_kw={"projection": "mollweide"})
@@ -257,7 +257,7 @@ def main():
               cmap="Reds", vmin=0, vmax=1)
     fig.colorbar(sc, ax=axes[2], shrink=0.7)
     fig.tight_layout()
-    fig.savefig(FIGS / "phase_4_audit_multimodality_maps.png", dpi=150, bbox_inches="tight")
+    fig.savefig(FIGS / "real_audit_multimodality_maps.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
     fig, axes = plt.subplots(2, 2, figsize=(11, 8))
@@ -275,7 +275,7 @@ def main():
         ax.grid(alpha=0.3)
     fig.suptitle("Phase 4 audit — 2t marginal censuses")
     fig.tight_layout()
-    fig.savefig(FIGS / "phase_4_audit_histograms.png", dpi=150, bbox_inches="tight")
+    fig.savefig(FIGS / "real_audit_histograms.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
@@ -293,9 +293,9 @@ def main():
     for ax in axes:
         ax.grid(alpha=0.3)
     fig.tight_layout()
-    fig.savefig(FIGS / "phase_4_audit_grid_rings.png", dpi=150, bbox_inches="tight")
+    fig.savefig(FIGS / "real_audit_grid_rings.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  wrote 4 figures to {FIGS}/phase_4_audit_*.png")
+    print(f"  wrote 4 figures to {FIGS}/real_audit_*.png")
 
     # ------------------------------------------- cross-channel structure (E)
     section("7. Cross-channel component structure (joint GMM regime check)")

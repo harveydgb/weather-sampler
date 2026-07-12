@@ -380,7 +380,7 @@ def main():
         if make_fig and fig_rows and not args.no_fig:
             # Defer rendering: the converged figure's across-init band needs the
             # aggregate, which is only complete after every init is processed.
-            fig_path = args.fig_dir / f"phase_4_forecast_faithfulness_{label}.png"
+            fig_path = args.fig_dir / f"forecast_faithfulness_{label}.png"
             pending_figs.append((label, column, fig_rows, payloads, fig_path))
 
     agg_rows = aggregate_converged_faith(converged_per_init)

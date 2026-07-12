@@ -1,10 +1,11 @@
-"""Executive-summary figure trio (report/summary.tex needs larger-type figures).
+"""Executive-summary figures (executive-summary/summary.tex needs larger-type figures).
 
-Three NEW figures sized for the executive summary's two-column layout, where
+Four NEW figures sized for the executive summary's two-column layout, where
 each is displayed at roughly 3.4 in column width -- so every title, tick, and
 colourbar label here is set noticeably larger than in the main-text Chapter
-4/5 figures. Reuses the same persisted +48 h, 14-epoch Phase-4 run artifacts
-as the main-text maps (no new sampling, no network, deterministic):
+4/5 figures. Reuses persisted Phase-4 (+48 h, 14-epoch) and Phase-1
+(synthetic testbed) run artifacts (no new sampling, no network,
+deterministic):
 
   summary_hook.png       Two-panel regional close-up: an independent draw at
                           each location vs. the ERA5 field it should
@@ -14,15 +15,24 @@ as the main-text maps (no new sampling, no network, deterministic):
                           imported -- scripts are entry points, not an
                           importable library -- see that function for the
                           original).
-  summary_fields.png     2x2 regional grid, one shared colour scale: the
-                          independent draw, the Joint MAP field at the run's
-                          selected weight, the Smoothed MAP (n=10) baseline,
-                          and ERA5. These are 4 of the 6 panels
+  summary_fields.png     Two-panel regional grid, one shared colour scale: the
+                          Joint MAP field at the run's selected weight beside
+                          the Smoothed MAP (n=10) baseline at matched
+                          roughness -- the exact pair the Key Findings
+                          comparison is made between. The independent-draw and
+                          ERA5 panels are NOT repeated here (they are
+                          summary_hook.png). Panels are 2 of the 6
                           `scripts/make_real_figures.py`'s
-                          `_method_map_fields`/`_plot_region_fields` build
-                          for `phase_4_region_maps.png`; re-implemented here
-                          (not imported, same reasoning as above) with larger
-                          fonts and only the 4 panels this summary needs.
+                          `_method_map_fields`/`_plot_region_fields` build for
+                          `region_maps.png`; re-implemented here (not imported,
+                          same reasoning as above) with larger fonts.
+  summary_toy.png        Two-panel synthetic-testbed grid: the most-likely
+                          value at each location (patchy, because the toy's
+                          per-location weights are drawn independently) beside
+                          Joint MAP at the report's selected toy weight
+                          (lambda*=0.2, matching report Figure 4.5's left
+                          panel). Data are the Phase-1 (homoscedastic) baseline
+                          + regularised-map run artifacts.
   summary_softening.png  One-hot fraction (share of locations whose largest
                           mixture weight exceeds 0.9) vs. lead time, 14-epoch
                           model only, +6 h .. +48 h. Recomputes the same
@@ -41,12 +51,16 @@ as the main-text maps (no new sampling, no network, deterministic):
 
 Data sources (all pre-existing, read-only):
   outputs/data/phase_4_real_2t.npz                              latlons
-  outputs/runs/phase_4_fc48_14ep_step8/anchors.npz               iid_seed0,
-                                                                  smoothed_map_n10
+  outputs/runs/phase_4_fc48_14ep_step8/anchors.npz               smoothed_map_n10
   outputs/runs/phase_4_fc48_14ep_step8/method1_sensitivity.npz   field_star
                                                                   (Joint MAP
                                                                   @ lambda*)
   outputs/runs/phase_4_fc48_14ep_step8/era5_reference.npz        era5
+                                                                  (+ iid_seed0
+                                                                  for the hook)
+  outputs/runs/stage_a_baselines/phase_1_homoscedastic_baselines.npz    mode_map
+  outputs/runs/stage_b_regularised_map/                          fields, lambdas
+      phase_1_homoscedastic_regularised_map.npz                  (toy Joint MAP)
   outputs/data/phase_4_fc48_14ep_step{1..8}_2t.npz(_meta.json)   per-lead
                                                                   GMMs for the
                                                                   softening
@@ -55,7 +69,7 @@ Data sources (all pre-existing, read-only):
 Run:
     .venv/bin/python scripts/make_summary_figures.py
 
-Writes outputs/figures/summary/{summary_hook,summary_fields,summary_softening}.png.
+Writes outputs/figures/summary/{summary_hook,summary_fields,summary_toy,summary_softening}.png.
 """
 
 import json
@@ -70,6 +84,7 @@ import numpy as np
 from sampler_research.forecast_diag import softening_metrics
 from sampler_research.io import load_real_marginal
 from sampler_research.plotting import (
+    _knee_index,
     _latitude_marker_sizes,
     _natural_earth_coastline_segments,
     _wrap_longitudes,
@@ -118,10 +133,22 @@ REGION_LAT_MIN, REGION_LAT_MAX = 20.0, 75.0
 REGION_MARKER_BASE_SIZE = 22.0
 
 COLORBAR_LABEL = "2-metre temperature (standardised)"
-TITLE_INDEPENDENT = "Sampling each location separately"
-TITLE_ERA5 = "ERA5, what actually occurred"
-TITLE_JOINT_MAP = "Joint MAP, the sampler built here"
-TITLE_SMOOTHED = "Smoothed baseline, same smoothness"
+TITLE_INDEPENDENT = "Sampling each\nlocation separately"
+TITLE_ERA5 = "ERA5, what\nactually occurred"
+TITLE_JOINT_MAP = "Joint MAP,\nthe sampler built here"
+TITLE_SMOOTHED = "Smoothed baseline,\nsame smoothness"
+
+# Synthetic-testbed panels (report Ch 4 artifacts; grid is 8x8, weights drawn
+# independently so most locations hold no dominant value).
+TOY_BASELINES_NPZ = REPO_ROOT / "outputs" / "runs" / "stage_a_baselines" / (
+    "phase_1_homoscedastic_baselines.npz"
+)
+TOY_M1_NPZ = REPO_ROOT / "outputs" / "runs" / "stage_b_regularised_map" / (
+    "phase_1_homoscedastic_regularised_map.npz"
+)
+TOY_GRID_SHAPE = (8, 8)
+TITLE_TOY_MAP = "Most likely value\nat each location"
+TOY_COLORBAR_LABEL = "synthetic variable"
 
 
 def _load_latlons():
@@ -197,20 +224,22 @@ def fig_hook(box, lon_b, lat_b):
     vmin, vmax = _shared_scale([iid, era5], box)
     marker_sizes = _latitude_marker_sizes(lat_b, base_size=REGION_MARKER_BASE_SIZE)
 
-    fig, axes = plt.subplots(1, 2, figsize=(9.6, 4.6))
+    fig, axes = plt.subplots(1, 2, figsize=(7.0, 4.9))
     sc = None
     for ax, values, title in zip(
         axes, (iid[box], era5[box]), (TITLE_INDEPENDENT, TITLE_ERA5)
     ):
         sc = _draw_panel(ax, lon_b, lat_b, values, marker_sizes, vmin, vmax, title)
-    fig.subplots_adjust(left=0.02, right=0.86, bottom=0.03, top=0.87, wspace=0.12)
-    # Height-matched colorbar (as in make_hook_figure.py): realise the
-    # aspect-constrained geometry with a draw, then size the bar to the right
-    # panel's actual box; bbox_inches="tight" keeps the rotated label unclipped.
+    fig.subplots_adjust(left=0.02, right=0.98, bottom=0.20, top=0.82, wspace=0.05)
+    # Horizontal colorbar beneath the panels: realise the aspect-constrained
+    # geometry with a draw, then span the bar across both panels' actual boxes.
     fig.canvas.draw()
-    panel = axes[1].get_position()
-    cbar_ax = fig.add_axes([0.875, panel.y0, 0.018, panel.height])
-    cbar = fig.colorbar(sc, cax=cbar_ax)
+    left_panel = axes[0].get_position()
+    right_panel = axes[1].get_position()
+    cbar_ax = fig.add_axes(
+        [left_panel.x0, left_panel.y0 - 0.10, right_panel.x1 - left_panel.x0, 0.045]
+    )
+    cbar = fig.colorbar(sc, cax=cbar_ax, orientation="horizontal")
     cbar.set_label(COLORBAR_LABEL, fontsize=AXIS_LABEL_FONTSIZE)
     cbar.ax.tick_params(labelsize=TICK_LABEL_FONTSIZE)
 
@@ -221,56 +250,91 @@ def fig_hook(box, lon_b, lat_b):
 
 
 def fig_fields(box, lon_b, lat_b):
-    """summary_fields.png: 2x2 method grid, one shared colourbar."""
+    """summary_fields.png: Joint MAP beside the smoothed baseline at matched
+    roughness, the pair the Key Findings comparison is made between (the
+    independent-draw and ERA5 panels live in summary_hook.png, not repeated
+    here)."""
 
     with np.load(RUN_DIR / "anchors.npz") as f:
-        iid = f["iid_seed0"]
         smoothed = f["smoothed_map_n10"]
     with np.load(RUN_DIR / "method1_sensitivity.npz") as f:
         joint_map = f["field_star"]
-    with np.load(RUN_DIR / "era5_reference.npz") as f:
-        era5 = f["era5"]
     for name, arr in (
-        ("iid_seed0", iid), ("smoothed_map_n10", smoothed),
-        ("field_star", joint_map), ("era5", era5),
+        ("smoothed_map_n10", smoothed), ("field_star", joint_map),
     ):
         _check_shape(name, arr, box.shape[0])
 
     panels = [
-        (TITLE_INDEPENDENT, iid),
         (TITLE_JOINT_MAP, joint_map),
         (TITLE_SMOOTHED, smoothed),
-        (TITLE_ERA5, era5),
     ]
     vmin, vmax = _shared_scale([values for _, values in panels], box)
     marker_sizes = _latitude_marker_sizes(lat_b, base_size=REGION_MARKER_BASE_SIZE)
 
-    fig, axes = plt.subplots(2, 2, figsize=(9.6, 8.6))
+    fig, axes = plt.subplots(1, 2, figsize=(7.0, 4.9))
     sc = None
-    for ax, (title, values) in zip(axes.reshape(-1), panels):
+    for ax, (title, values) in zip(axes, panels):
         sc = _draw_panel(ax, lon_b, lat_b, values[box], marker_sizes, vmin, vmax, title)
-    # Aspect-locked panels centre inside their grid boxes, opening a wide blank
-    # band between the rows; anchor the top row down and the bottom row up so
-    # the rows meet at a gap set by hspace alone (sized for the row-2 titles).
-    for ax in axes[0]:
-        ax.set_anchor("S")
-    for ax in axes[1]:
-        ax.set_anchor("N")
-    fig.subplots_adjust(left=0.02, right=0.87, bottom=0.02, top=0.94, wspace=0.16, hspace=0.2)
-    # Height-matched colorbar spanning both diagram rows (see fig_hook):
-    # realise the aspect-constrained geometry with a draw, then size the bar
-    # from the bottom-right panel's base to the top-right panel's top.
+    fig.subplots_adjust(left=0.02, right=0.98, bottom=0.20, top=0.82, wspace=0.05)
+    # Horizontal colorbar beneath the panels (see fig_hook).
     fig.canvas.draw()
-    top_panel = axes[0][1].get_position()
-    bottom_panel = axes[1][1].get_position()
+    left_panel = axes[0].get_position()
+    right_panel = axes[1].get_position()
     cbar_ax = fig.add_axes(
-        [0.885, bottom_panel.y0, 0.018, top_panel.y1 - bottom_panel.y0]
+        [left_panel.x0, left_panel.y0 - 0.10, right_panel.x1 - left_panel.x0, 0.045]
     )
-    cbar = fig.colorbar(sc, cax=cbar_ax)
+    cbar = fig.colorbar(sc, cax=cbar_ax, orientation="horizontal")
     cbar.set_label(COLORBAR_LABEL, fontsize=AXIS_LABEL_FONTSIZE)
     cbar.ax.tick_params(labelsize=TICK_LABEL_FONTSIZE)
 
     out = OUT_DIR / "summary_fields.png"
+    fig.savefig(out, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"wrote {out.relative_to(REPO_ROOT)}")
+
+
+def fig_toy():
+    """summary_toy.png: the testbed's most-likely-value field beside Joint MAP
+    at the report's selected toy weight (report Figure 4.5's lesson for a
+    non-specialist: with independently drawn weights, most-likely values give
+    no coherent field, whilst the sampler still does).
+
+    The Joint MAP panel is byte-identical to report Figure 4.5's Joint MAP
+    panel: the field is picked by the SAME knee-index rule the report uses
+    (`scripts/make_toy_figures.py` `_selected_outcome_panels`, which lands on
+    lambda*=0.2), and rendered with the same `origin="lower"`, so the two
+    documents' toy fields flow across."""
+
+    with np.load(TOY_BASELINES_NPZ) as f:
+        mode_map = f["mode_map"].reshape(TOY_GRID_SHAPE)
+    with np.load(TOY_M1_NPZ) as f:
+        b_best = _knee_index(f["r_tilde"], f["nll_over_n"])  # report's lambda*=0.2
+        joint_map = f["fields"][b_best].reshape(TOY_GRID_SHAPE)
+
+    values = np.concatenate([mode_map.ravel(), joint_map.ravel()])
+    vmin, vmax = float(values.min()), float(values.max())
+
+    fig, axes = plt.subplots(1, 2, figsize=(7.2, 4.2))
+    im = None
+    for ax, (title, field) in zip(
+        axes, ((TITLE_TOY_MAP, mode_map), (TITLE_JOINT_MAP, joint_map))
+    ):
+        # origin="lower" matches every report toy panel (make_toy_figures.py).
+        im = ax.imshow(field, origin="lower", cmap="viridis", vmin=vmin, vmax=vmax)
+        ax.set_title(title, fontsize=PANEL_TITLE_FONTSIZE, pad=10)
+        ax.set_xticks([])
+        ax.set_yticks([])
+    fig.subplots_adjust(left=0.02, right=0.86, bottom=0.04, top=0.82, wspace=0.05)
+    # Vertical colorbar height-matched to the square panels (see fig_hook):
+    # realise the geometry with a draw, then size the bar to the right panel's box.
+    fig.canvas.draw()
+    panel = axes[1].get_position()
+    cbar_ax = fig.add_axes([0.885, panel.y0, 0.022, panel.height])
+    cbar = fig.colorbar(im, cax=cbar_ax)
+    cbar.set_label(TOY_COLORBAR_LABEL, fontsize=AXIS_LABEL_FONTSIZE)
+    cbar.ax.tick_params(labelsize=TICK_LABEL_FONTSIZE)
+
+    out = OUT_DIR / "summary_toy.png"
     fig.savefig(out, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {out.relative_to(REPO_ROOT)}")
@@ -346,6 +410,7 @@ def main():
     box, lon_b, lat_b = _region_mask(latlons)
     fig_hook(box, lon_b, lat_b)
     fig_fields(box, lon_b, lat_b)
+    fig_toy()
     fig_softening()
 
 

@@ -23,7 +23,7 @@
 \newcommand{\summaryauthor}{Harvey Bermingham}
 \newcommand{\summaryprogramme}{MPhil Data Intensive Science}
 \newcommand{\summaryinstitution}{University of Cambridge}
-\newcommand{\summarywordcount}{975}
+\newcommand{\summarywordcount}{987}
 \newcommand{\summarylimit}{1,000 words}
 
 \newif\ifshowwordcount
@@ -69,15 +69,6 @@
 \end{@twocolumnfalse}
 ]
 
-% This is a template, not approved prose. Flesh it only after the report is
-% final enough to derive from, following research_notes/writing/exec-summary.md.
-% Requirements:
-% - separate document, <= 1,000 words;
-% - broader audience: senior managers / grant reviewers;
-% - why it matters, impact, next steps;
-% - numbers via macros only;
-% - no predictive-skill or ensemble-calibration over-claim.
-
 \section*{Motivation \& Scientific Justification}
 
 Weather forecasts inform decisions across agriculture, energy, transport and emergency
@@ -85,11 +76,9 @@ planning, and recent years have repeatedly broken temperature records. Preparing
 droughts and heatwaves therefore depends not only on the most likely outcome but on how
 confident that prediction is. Operational forecasts traditionally express this uncertainty by running
 a physics-based model many times from perturbed starting conditions.
-
-Machine-learning weather models now supplement this repeated simulation. Many output
-a single best value at each location, which does not carry the model's uncertainty,
-whilst others such as GenCast \cite{price2024gencast} generate whole ensembles of
-fields. The WeatherGenerator \cite{weathergenerator}, a foundation weather model
+Machine-learning models offer a newer route, learning from decades of past atmospheric
+data rather than simulating the physics. Some, such as GenCast \cite{price2024gencast},
+generate whole ensembles of fields. The WeatherGenerator \cite{weathergenerator}, a foundation weather model
 developed at ECMWF of the same kind as AtmoRep \cite{lessig2023atmorep} and Aurora
 \cite{bodnar2024aurora}, has a branch that instead outputs a Gaussian mixture at every
 grid location, a blend of four weighted bell-shaped components. This means the forecast
@@ -98,7 +87,6 @@ at once. However, due to computational constraints each location's mixture is pr
 its own, and the model holds no covariance between locations. Sampling each location
 independently therefore gives a noisy field unlike any real weather pattern
 (Figure~\ref{fig:sum-hook}).
-
 Many of the quantities forecasts exist to provide belong to a whole field rather
 than a single location, such as the total rainfall over a river catchment, and each
 depends on how locations vary together, so it can only be drawn from a field that
@@ -129,15 +117,24 @@ model and does not aim to improve forecast accuracy. The strength of the smoothi
 be varied to suit the use. For comparison it is tuned to a fixed reference, so
 competing methods are judged at the same smoothness, with no setting treated as
 correct.
-
 The sampler was first exercised on a small synthetically constructed testbed whose
 mixtures are specified in advance, so the coherent underlying distributions are known
 and give context on how successfully the sampler rebuilds a field. Its independently
 drawn mixture weights also make it a demanding case, with few locations holding one
-dominant value. The sampler was then tested on real 48-hour temperature forecasts
-across roughly forty thousand grid locations covering the globe, from
-\comparisonNInits{} start dates spanning the seasons of 2023, outside the model's
-training period.
+dominant value, so the field of most likely values is patchy and only a joint choice
+recovers a smooth one (Figure~\ref{fig:sum-toy}). The sampler was then tested on real
+48-hour temperature forecasts across roughly forty thousand grid locations covering the
+globe, from \comparisonNInits{} start dates spanning the seasons of 2023, outside the
+model's training period.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{summary/summary_toy.png}
+  \caption{On the synthetic testbed, taking each location's most likely value leaves a
+  patchy field (left) because neighbouring locations rarely agree on one value, whereas
+  the sampler recovers a smooth field (right) while keeping each value plausible.}
+  \label{fig:sum-toy}
+\end{figure}
 
 \section*{Key Findings}
 
@@ -147,7 +144,6 @@ At the same smoothness the sampler was found to keep far more locations on value
 model itself rates plausible, with the smoothed baseline leaving \fcSmearBlurNTen{} of locations on
 unlikely in-between values against the sampler's \fcSmearStar{}, roughly two and a half
 times as many.
-
 The advantage concentrates where the forecast is genuinely uncertain, at locations
 whose mixture holds two distinct outcomes separated by a low-probability gap,
 a front arriving or not, rather than one wide overlapping spread. Within those
@@ -161,22 +157,20 @@ mixture, \mOneCovNinetyConvergedMean{} of locations falling in the central 90\% 
 ([\mOneCovNinetyConvergedLo{}, \mOneCovNinetyConvergedHi] across start dates). This
 checks each value against its own predicted distribution, not the calibration of
 forecast probabilities against observed weather.
-
 Such situations become more common further ahead. Locations effectively certain of one
 value fall from \oneHotSixHourConverged{} at six hours to \oneHotFortyEightConverged{}
 at 48 hours, whilst locations holding two well-separated outcomes grow from
 \bimodalTwoSigmaSixHourConverged{} to \bimodalTwoSigmaFortyEightConverged{}, so the
-conditions where the sampler matters most grow with range. Figure~\ref{fig:sum-maps} shows the
-sampled fields beside the ERA5 record of what actually occurred.
+conditions where the sampler matters most grow with range. Figure~\ref{fig:sum-maps}
+shows the sampler's field beside the smoothed baseline at the same smoothness.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\linewidth]{summary/summary_fields.png}
   \caption{Sampled 48-hour temperature fields for one 2023 start date over the North
-  Atlantic and Europe, in standardised units. Sampling each location separately is
-  noisy (top left), whereas Joint MAP (top right) and the smoothed baseline (bottom
-  left) are equally smooth by construction, and the corresponding ERA5 field (bottom
-  right) shows the weather that occurred.}
+  Atlantic and Europe, in standardised units, matched in smoothness by construction.
+  To the eye the two are alike, so the comparison is decided by the share of values
+  each leaves on outcomes the model itself rated unlikely.}
   \label{fig:sum-maps}
 \end{figure}
 
@@ -187,7 +181,6 @@ WeatherGenerator's Gaussian-mixture branch that were not previously built, both
 applying to any future model on the branch. More broadly, a coherent field is what
 lets this style of forecast answer the field-level questions raised above. The full
 evaluation runs in about \computeAuditWallSeconds{} seconds on one processor.
-
 This research uses only one weather variable, 2-metre temperature, one spatial
 resolution and one model branch. The model
 behind the mixtures is an early checkpoint that was still visibly improving when

@@ -279,7 +279,7 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument("--out-csv", type=Path, default=RUN_DIR / "softening_by_lead.csv")
-    parser.add_argument("--fig", type=Path, default=FIG_DIR / "phase_4_forecast_softening.png")
+    parser.add_argument("--fig", type=Path, default=FIG_DIR / "forecast_softening.png")
     parser.add_argument("--ae-npz", type=Path, default=AE_NPZ,
                         help="AE step-0 reconstruction npz for the lead-0 anchor star")
     parser.add_argument("--no-fig", action="store_true", help="skip the figure (CSV only)")

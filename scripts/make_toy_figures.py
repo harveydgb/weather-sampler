@@ -4,39 +4,39 @@ Generates the synthetic-testbed figures the report includes, replacing the
 old notebook exports so the report no longer depends on notebook execution
 (notebooks 02/03 are now exploratory only):
 
-  phase_2_stage_bc_nonsmearing_homoscedastic.png
+  toy_nonsmearing.png
       Non-smearing smear tail: Joint MAP (Method 1, lambda sweep) vs
       Mode-selection MRF (Method 4, beta sweep) vs the per-cell-MAP /
       smoothed-MAP / a* reference fields -- the >0.5 sigma (= dNLL > 0.125 nats)
       smear tail with within-field spatial-bootstrap CIs, vs scale-free
       roughness R~. (A former left panel showing mean dNLL to best mode was
       dropped: mean dNLL = NLL/N minus a fixed per-cell constant, i.e. the
-      pareto figure's y-axis, so it duplicated phase_2_tv_pareto_plane.)
-  phase_2_tv_pareto_plane_homoscedastic.png
+      pareto figure's y-axis, so it duplicated toy_tv_pareto_plane.)
+  toy_tv_pareto_plane.png
       Faithfulness-coherence plane (NLL/N vs R~) for Joint MAP,
       Mode-selection MRF and the exact min-cut TV frontier, bracketed by the
       independent-draw / mixture-mean / smoothed-MAP / a* anchors. The confounded
       TV (Adam) arm is omitted from this main-text figure (it fails its own
       min-cut optimality certificate below lambda=0.2 and is dominated); it
       remains a pipeline quantity available for Appendix F.
-  phase_2_selected_outcomes_homoscedastic.png
+  toy_selected_outcomes.png
       Field maps at the selected operating points from the main-text
       faithfulness-coherence plane: Joint MAP at lambda*, Mode-selection MRF at
       beta*, and exact TV at lambda_TV* in the same panel style as
-      phase_2_stage_a_baselines.png.
-  phase_2_stage_bc_pareto_homoscedastic.png
+      toy_baselines.png.
+  toy_sweep_plane.png
       Appendix full-sweep plane: every swept Joint MAP (lambda) and
       Mode-selection MRF (beta) configuration against the Stage A anchors,
       including the off-scale Independent draw the main-text plane omits.
       A display-name re-render of the retired notebook export of the same
       name, read from the same persisted stage_* artifacts.
-  phase_1_component_fields.png
+  toy_component_fields.png
       The four slowly-varying quadratic component-mean sheets, read straight
       from the toy `.npz` -- no stage run required. Report re-render of
       notebook 00's debug-only `plot_component_fields` panel, with report
       framing: panels titled "Surface k" / "centre = (a, b)", no
       suptitle, and a colorbar sized to the panel row's own height.
-  phase_2_stage_a_baselines.png
+  toy_baselines.png
       The five Stage A reference fields -- Independent draw, Per-cell MAP,
       Mixture mean, Smoothed MAP, Smoothest faithful ($a^\star$) -- each
       panel titled with its (former) Table 4.1 display name and its NLL/N +
@@ -247,7 +247,7 @@ def _anchor(ax, art, key, y, *, ci=None, annotate_xy=(5, 4), annotate_ha="left")
 
 
 def fig_nonsmearing(art, fig_dir=FIG_DIR):
-    """Smear-tail panel -> phase_2_stage_bc_nonsmearing_homoscedastic.png."""
+    """Smear-tail panel -> toy_nonsmearing.png."""
     B, C = art["B"], art["C"]
     b_delta = [smear(f, art) for f in B["fields"]]
     c_delta = [smear(f, art) for f in C["fields"]]
@@ -317,7 +317,7 @@ def fig_nonsmearing(art, fig_dir=FIG_DIR):
             "last": dict(xytext=(7, -7), ha="left", va="center"),
         },
     )
-    out = Path(fig_dir) / "phase_2_stage_bc_nonsmearing_homoscedastic.png"
+    out = Path(fig_dir) / "toy_nonsmearing.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -326,7 +326,7 @@ def fig_nonsmearing(art, fig_dir=FIG_DIR):
 
 
 def fig_pareto_plane(art, fig_dir=FIG_DIR):
-    """Faithfulness-coherence plane -> phase_2_tv_pareto_plane_homoscedastic.png."""
+    """Faithfulness-coherence plane -> toy_tv_pareto_plane.png."""
     B, C, T = art["B"], art["C"], art["T"]
     cut_colour = field_style("tv_cut")[0]
 
@@ -428,7 +428,7 @@ def fig_pareto_plane(art, fig_dir=FIG_DIR):
             "last": dict(xytext=(6, 3), ha="left", va="bottom"),
         },
     )
-    out = Path(fig_dir) / "phase_2_tv_pareto_plane_homoscedastic.png"
+    out = Path(fig_dir) / "toy_tv_pareto_plane.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -437,7 +437,7 @@ def fig_pareto_plane(art, fig_dir=FIG_DIR):
 
 
 def fig_full_plane(art, fig_dir=FIG_DIR):
-    """Appendix full-sweep plane -> phase_2_stage_bc_pareto_homoscedastic.png.
+    """Appendix full-sweep plane -> toy_sweep_plane.png.
 
     The complete lambda+beta grids behind the Stage B/C selections: both full
     method sweeps on the (NLL/N, R~) plane against the Stage A anchors,
@@ -499,7 +499,7 @@ def fig_full_plane(art, fig_dir=FIG_DIR):
             "last": dict(xytext=(-3, 8), ha="right", va="bottom"),
         },
     )
-    out = Path(fig_dir) / "phase_2_stage_bc_pareto_homoscedastic.png"
+    out = Path(fig_dir) / "toy_sweep_plane.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -528,7 +528,7 @@ def _colorbar_matched_to_row(fig, axes, im, *, gap=0.015, width=0.02):
 
 
 def fig_component_fields(art, fig_dir=FIG_DIR):
-    """Four component-mean sheets -> phase_1_component_fields.png.
+    """Four component-mean sheets -> toy_component_fields.png.
 
     Report re-render of notebook 00's debug-only `plotting.plot_component_fields`
     panel (`component_fields` is shared bit-for-bit between the homoscedastic
@@ -567,7 +567,7 @@ def fig_component_fields(art, fig_dir=FIG_DIR):
     fig.tight_layout()
     _colorbar_matched_to_row(fig, axes, im)
 
-    out = Path(fig_dir) / "phase_1_component_fields.png"
+    out = Path(fig_dir) / "toy_component_fields.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -596,7 +596,7 @@ TOY_BASELINE_LABELS = [
 
 
 def fig_stage_a_baselines(art, fig_dir=FIG_DIR):
-    """Five Stage A reference fields -> phase_2_stage_a_baselines.png.
+    """Five Stage A reference fields -> toy_baselines.png.
 
     Report re-render of notebook 02's "Stage A anchors" field-map row,
     extended from four panels to all five former-Table-4.1 rows (adds Mixture mean).
@@ -631,7 +631,7 @@ def fig_stage_a_baselines(art, fig_dir=FIG_DIR):
     fig.tight_layout()
     _colorbar_matched_to_row(fig, axes, im)
 
-    out = Path(fig_dir) / "phase_2_stage_a_baselines.png"
+    out = Path(fig_dir) / "toy_baselines.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -698,7 +698,7 @@ def _selected_outcome_panels(art):
 
 
 def fig_selected_outcomes(art, fig_dir=FIG_DIR):
-    """Selected operating-point fields -> phase_2_selected_outcomes_homoscedastic.png."""
+    """Selected operating-point fields -> toy_selected_outcomes.png."""
 
     panels, _selected = _selected_outcome_panels(art)
     stacked = np.concatenate([
@@ -721,7 +721,7 @@ def fig_selected_outcomes(art, fig_dir=FIG_DIR):
     fig.tight_layout()
     _colorbar_matched_to_row(fig, axes, im)
 
-    out = Path(fig_dir) / "phase_2_selected_outcomes_homoscedastic.png"
+    out = Path(fig_dir) / "toy_selected_outcomes.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)

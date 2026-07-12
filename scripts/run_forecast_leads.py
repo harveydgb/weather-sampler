@@ -168,7 +168,10 @@ def lead_run_dir(runs_dir: Path, prefix: str, step: int) -> Path:
 
 
 def lead_figure_dir(figures_dir: Path, prefix: str, step: int) -> Path:
-    return Path(figures_dir).expanduser() / f"{prefix}_step{step}"
+    # Figure dirs use the de-phased `forecast_<ep>` naming (the run/data dirs
+    # keep the internal `phase_4_fc48_<ep>` prefix via lead_run_dir).
+    fig_prefix = prefix.replace("phase_4_fc48_", "forecast_")
+    return Path(figures_dir).expanduser() / f"{fig_prefix}_step{step}"
 
 
 def _phase4_base_command(

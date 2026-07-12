@@ -53,7 +53,7 @@ LAT_MIN, LAT_MAX = 20.0, 75.0
 
 # Match the Phase-4 regional point-size treatment after accounting for panel
 # size. Matplotlib scatter `s` is marker area; the Figure 1.1 regional panels
-# are 1.418x the area of a panel in `phase_4_region_maps.png`.
+# are 1.418x the area of a panel in `region_maps.png`.
 REGION_MARKER_BASE_SIZE = 14.0 * 1.4181399176954732
 
 
